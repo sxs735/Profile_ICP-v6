@@ -1,18 +1,20 @@
+from tkinter import Scale
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
-from Model import *
+import Model
 
 class AppWindow:
     Model_lib = {}
     Data_list = []
     Target_list = []
-    Selected = []
+    Selected = {}
 
     #Default_value
     State = 'Main'
-    Sampling = [0.5, 0.5]
+    File_Load = [None,1]
+    Sampling = [0, 0.5, 0.5]
     ColorMap = ['Miscellaneous','gist_rainbow','_r']
     ICP_parameter = [True,'PointToPoint',0.1,'None',np.nan]
 
@@ -47,17 +49,17 @@ class AppWindow:
         self.Target_button_load = gui.Button('Load')
         self.Target_button_load.horizontal_padding_em = 0
         self.Target_button_load.vertical_padding_em = 0
-        #self.Target_button_load.set_on_clicked(self.Target_Load_clicked)
+        self.Target_button_load.set_on_clicked(self.Target_Load_clicked)
 
         self.Target_button_del = gui.Button('Del')
         self.Target_button_del.horizontal_padding_em = 0
         self.Target_button_del.vertical_padding_em = 0
-        #self.Target_button_del.set_on_clicked(self.Target_Delete)
+        self.Target_button_del.set_on_clicked(self.Target_Delete)
         self.Target_button_del.enabled = False
 
         self.Target_View = gui.ListView()
         self.Target_View.set_max_visible_items(6)
-        #self.Target_View.set_on_selection_changed(self.Target_View_mouse)
+        self.Target_View.set_on_selection_changed(self.Target_View_mouse)
 
         self.Change_Tbutton = gui.Button('')
         self.Change_Tbutton.horizontal_padding_em = 0.5
@@ -77,7 +79,7 @@ class AppWindow:
         self.Coeff_button_load = gui.Button('Load')
         self.Coeff_button_load.horizontal_padding_em = 0
         self.Coeff_button_load.vertical_padding_em = 0
-        #self.Coeff_button_load.set_on_clicked(self.Coeff_Load_dialog)
+        self.Coeff_button_load.set_on_clicked(self.Coeff_Load_dialog)
 
         Coeff_bar = gui.Horiz(0.25 * self.em)
         Coeff_bar.add_child(self.Coeff_name)
@@ -87,17 +89,17 @@ class AppWindow:
         self.Data_button_load = gui.Button('Load')
         self.Data_button_load.horizontal_padding_em = 0
         self.Data_button_load.vertical_padding_em = 0
-        #self.Data_button_load.set_on_clicked(self.Data_Load_clicked)
+        self.Data_button_load.set_on_clicked(self.Data_Load_clicked)
 
         self.Data_button_del = gui.Button('Del')
         self.Data_button_del.enabled = False
         self.Data_button_del.horizontal_padding_em = 0
         self.Data_button_del.vertical_padding_em = 0
-        #self.Data_button_del.set_on_clicked(self.Data_Delete)
+        self.Data_button_del.set_on_clicked(self.Data_Delete)
 
         self.Data_View = gui.ListView()
         self.Data_View.set_max_visible_items(8)
-        #self.Data_View.set_on_selection_changed(self.Data_View_mouse)
+        self.Data_View.set_on_selection_changed(self.Data_View_mouse)
 
         self.Change_Dbutton = gui.Button('')
         self.Change_Dbutton.horizontal_padding_em = 0.5
@@ -319,6 +321,173 @@ class AppWindow:
         self.colorbar.frame = gui.Rect(r.get_right()-width-pref.width, r.y, pref.width, pref.height)
 
         self.window.close_dialog()
+
+    def Coeff_Load_dialog(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
+        dlg.add_filter('.xlsx','Surface parameters files (.xlsx)')
+        dlg.set_on_cancel(self.window.close_dialog)
+        dlg.set_on_done(self.Coeff_load_done)
+        self.window.show_dialog(dlg)
+
+    def Coeff_load_done(self,filepath):
+        self.Coeff = Model.Surface_XY(filepath)
+        self.Coeff_name.text_value = self.Coeff.name
+        self.Sampling = [0, 0.5, 0.5]
+        self.window.close_dialog()
+
+    def Coeff_Delete(self):
+        self.Coeff_name.text_value = ''
+        self.Coeff_button_del.enabled = False
+        self.Surface.clear_items()
+        del self.Coeff
+
+    def Target_Load_clicked(self):
+        self.window.show_dialog(self.Load_Dialog('Target_Button'))
+
+    def Data_Load_clicked(self):
+        self.window.show_dialog(self.Load_Dialog('Data_Button'))
+
+    def Load_Dialog(self,Button):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
+        if Button == 'Target_Button':
+            dlg.add_filter('.stl .fbx .obj .off .gltf .glb','Triangle mesh files (.stl, .fbx, .obj, .off, .gltf, .glb)')
+        elif Button == 'Data_Button':
+            dlg.add_filter('.xyz .xyzn .xyzrgb .ply .pcd .pts','Point cloud files (.xyz, .xyzn, .xyzrgb, .ply, .pcd, .pts)')
+        dlg.set_on_cancel(self.window.close_dialog)
+        dlg.set_on_done(self.Load_dialog_done)
+        return dlg
+
+    def Load_dialog_done(self,filepath):
+        self.File_Load[0] = filepath
+        self.window.close_dialog()
+        self.window.show_dialog(self.Scale_dialog())
+
+    def Scale_dialog(self):
+        dlg = gui.Dialog('')
+        self.Scale = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.Scale.int_value = 1
+        dig_done = gui.Button('Done')
+        dig_done.vertical_padding_em = 0
+        dig_done.set_on_clicked(self.Scaling_dialog_done)
+        vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        vert.add_child(gui.Label('Scaling ratio'))
+        vert.add_child(self.Scale)
+        vert.add_fixed(0.25 * self.em)
+        vert.add_child(dig_done)
+        dlg.add_child(vert)
+        return dlg
+
+    def Scaling_dialog_done(self):
+        self.File_Load[1] = self.Scale.double_value
+        self.window.close_dialog()
+        self.Load(*self.File_Load)
+    
+    def Load(self,filepath,scale):
+        Geometry = Model.Object3D(filepath,scale)
+        Geometry.visible = True
+        self.Model_lib[Geometry.name] = Geometry
+        if Geometry.type & o3d.io.CONTAINS_TRIANGLES:
+            self._scene.scene.add_geometry(Geometry.name, Geometry.mesh, self.material_mesh)
+            self._scene.scene.add_geometry('wire_'+Geometry.name, Geometry.wire, self.material_wire)
+            bounds = Geometry.mesh.get_axis_aligned_bounding_box()
+            if Geometry.name not in self.Target_list:
+                self.Target_list += [Geometry.name]
+                self.Target_View.set_items(self.Target_list)
+        elif Geometry.type & o3d.io.CONTAINS_POINTS:
+            Geometry.z_direction = 0
+            self._scene.scene.add_geometry(Geometry.name, Geometry.cloud, self.material_cloud)
+            bounds = Geometry.cloud.get_axis_aligned_bounding_box()
+            if Geometry.name not in self.Data_list:
+                self.Data_list += [Geometry.name]
+                self.Data_View.set_items(self.Data_list)
+        else:
+            bounds = o3d.geometry.AxisAlignedBoundingBox(np.array([-1,-1,-1]),np.array([1,1,1]))
+        self._scene.setup_camera(60, bounds, bounds.get_center())
+
+    def Target_Delete(self):
+        del self.Model_lib[self.Target_View.selected_value]
+        if 'Target' in self.Selected:
+            del self.Selected['Target']
+        self._scene.scene.remove_geometry(self.Target_View.selected_value)
+        self._scene.scene.remove_geometry('wire_'+self.Target_View.selected_value)
+        self.Target_list.remove(self.Target_View.selected_value)
+        self.Target_View.set_items(self.Target_list)
+        self.Target_button_del.enabled = False
+        self.ICP_button.enabled = False
+
+    def Data_Delete(self):
+        del self.Model_lib[self.Data_View.selected_value], self.Selected['Data']
+        self._scene.scene.remove_geometry(self.Data_View.selected_value)
+        self.Data_list.remove(self.Data_View.selected_value)
+        self.Data_View.set_items(self.Data_list)
+        self.Data_button_del.enabled = False
+        self.ICP_button.enabled = False
+        
+    def ICP_button_enabled(self):
+        if 'Target' in self.Selected and self.Model_lib[self.Selected['Target']].type & o3d.io.CONTAINS_POINTS \
+            and 'Data' in self.Selected:
+            return True
+        else:
+            return False
+
+    def Target_View_mouse(self, new_val, is_dbl_click):
+        self.Target_button_del.enabled = True
+        self.Selected['Target'] = new_val
+        self.ICP_button.enabled = self.ICP_button_enabled()
+        if hasattr(self,'Coeff') and self.Model_lib[self.Selected['Target']].type & o3d.io.CONTAINS_TRIANGLES \
+            and is_dbl_click:
+            self.window.show_dialog(self.Sampling_dialog())
+
+    def Data_View_mouse(self, new_val, is_dbl_click):
+        self.Data_button_del.enabled = True
+        self.Selected['Data'] = new_val
+        self.ICP_button.enabled = self.ICP_button_enabled()
+
+    def Sampling_dialog(self):
+        dlg = gui.Dialog('')
+        self.Surface = gui.Combobox()
+        for col in  self.Coeff.sur:
+            self.Surface.add_item(col)
+        self.Surface.selected_index = self.Sampling[0]
+        self.Xs = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.Ys = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.Xs.double_value = self.Sampling[1]
+        self.Ys.double_value = self.Sampling[2]
+        Xh = gui.Horiz(0.25 * self.em)
+        Yh = gui.Horiz(0.25 * self.em)
+        Xh.add_child(gui.Label('X')); Xh.add_child(self.Xs)
+        Yh.add_child(gui.Label('Y')); Yh.add_child(self.Ys)
+        dig_done = gui.Button('Done')
+        dig_done.vertical_padding_em = 0
+        dig_done.set_on_clicked(self.Sampling_dialog_done)
+        vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        vert.add_child(gui.Label('Choose Surface'))
+        vert.add_child(self.Surface)
+        vert.add_fixed(self.em)
+        vert.add_child(gui.Label('Sampling rate'))
+        vert.add_child(Xh)
+        vert.add_child(Yh)
+        vert.add_fixed(0.5 * self.em)
+        vert.add_child(dig_done)
+        dlg.add_child(vert)
+        return dlg
+    
+    def Sampling_dialog_done(self):
+        self.Sampling = [self.Surface.selected_index,self.Xs.double_value,self.Ys.double_value]
+        self.window.close_dialog()
+        S = self.Coeff.sur[self.Sampling[0]]
+        try:
+            Obj = self.Coeff.Sampling_Surface(self.Model_lib[self.Target_View.selected_value],S,*self.Sampling[1:])
+            self.Model_lib[Obj.name] = Obj
+            self.Model_lib[Obj.name].visible = True
+            if Obj.name not in self.Target_list:
+                self.Target_list += [Obj.name]
+                self.Target_View.set_items(self.Target_list)
+            self._scene.scene.add_geometry(Obj.name, Obj.cloud, self.material_cloud)
+        except Exception:
+            print(S,'Edge detection Failed')
+        self.window.close_dialog()
+            
 
 #%%
 if __name__ == '__main__':

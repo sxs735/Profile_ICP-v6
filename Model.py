@@ -1,3 +1,4 @@
+from copy import deepcopy
 import numpy as np
 import pandas as pd
 import open3d as o3d
@@ -5,17 +6,18 @@ import ntpath
 from alphashape import alphashape
 
 dr = np.pi/180
-class Geometry3D:
+class Object3D:
     def __init__(self, filepath = None, name = None, scale = 1):
         if filepath == None and name is not None:
-            self.geometry_type = o3d.io.CONTAINS_POINTS
+            self.type = o3d.io.CONTAINS_POINTS
             self.name = name
             self.cloud = o3d.geometry.PointCloud()
         else:
             self.name = ntpath.basename(filepath)
-            self.geometry_type = o3d.io.read_file_geometry_type(filepath)
+            self.type = o3d.io.read_file_geometry_type(filepath)
+            self.type = o3d.io.CONTAINS_TRIANGLES if self.type & o3d.io.CONTAINS_TRIANGLES == 4 else o3d.io.CONTAINS_POINTS
             self.scale = scale
-            if self.geometry_type & o3d.io.CONTAINS_TRIANGLES:
+            if self.type & o3d.io.CONTAINS_TRIANGLES:
                 self.mesh = o3d.io.read_triangle_mesh(filepath)
                 self.mesh = self.mesh.scale(scale,self.mesh.get_center())
                 self.wire = o3d.geometry.LineSet.create_from_triangle_mesh(self.mesh)
@@ -23,7 +25,7 @@ class Geometry3D:
                 self.mesh.paint_uniform_color([1, 1, 1])
                 self.wire.paint_uniform_color([0, 0, 0])
                 print('[Info] Successfully read', filepath)
-            elif self.geometry_type & o3d.io.CONTAINS_POINTS:
+            elif self.type & o3d.io.CONTAINS_POINTS:
                 self.z_direction = 0
                 self.cloud = o3d.io.read_point_cloud(filepath)
                 self.cloud = self.cloud.scale(scale,self.cloud.get_center())
@@ -84,8 +86,10 @@ class Surface_XY:
             vol = None
         return vol,index
 
-    def Generate_points(self,pcd,S,Xs,Ys):
-        Edge,inside_idx = self.Surface_edge(pcd,S)
+    def Sampling_Surface(self,object3D,Surface,Xs,Ys):
+        vertices = np.unique(object3D.mesh.vertices,axis = 0)
+        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(deepcopy(vertices)))
+        Edge,inside_idx = self.Surface_edge(pcd,Surface)
         pcd = pcd.select_by_index(inside_idx)
         bounding_box = pcd.get_axis_aligned_bounding_box()
         xmin,ymin,_ = bounding_box.get_min_bound()
@@ -93,12 +97,17 @@ class Surface_XY:
         x,y = np.arange(xmin,xmax+Xs,Xs),np.arange(ymin,ymax+Ys,Ys)
         x,y = np.meshgrid(x, y)
         x,y = x.reshape((-1)),y.reshape((-1))
-        z = self.Sag_Z(x,y,S)
+        z = self.Sag_Z(x,y,Surface)
         pcd.points = o3d.utility.Vector3dVector(np.vstack((x,y,z)).T)
         pcd = Edge.crop_point_cloud(pcd)
-        pcd.transform(self.Matrix44(S))
+        pcd.transform(self.Matrix44(Surface))
         pcd.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
         pcd.estimate_covariances(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
         pcd.normalize_normals()
-        return pcd
+        pcd.paint_uniform_color([0,0.392,0])
+        name = Surface+'_'+object3D.name[:-3]+'xyz'
+        Sampling_pcd = Object3D(name = name)
+        Sampling_pcd.cloud = pcd
+        Sampling_pcd.Surface = Surface
+        return Sampling_pcd
         
