@@ -1,4 +1,4 @@
-from tkinter import Scale
+from copy import deepcopy
 import numpy as np
 import open3d as o3d
 import open3d.visualization.gui as gui
@@ -7,8 +7,8 @@ import Model
 
 class AppWindow:
     Model_lib = {}
-    Data_list = []
-    Target_list = []
+    Data_list = set([])
+    Target_list = set([])
     Selected = {}
 
     #Default_value
@@ -121,15 +121,15 @@ class AppWindow:
         data_bar.add_child(self.Data_button_del)
 
         #Sag Error
-        self.SagError_cal_button = gui.Button('Sag Error Cal.')
-        self.SagError_cal_button.enabled = False
-        self.SagError_cal_button.horizontal_padding_em = 0
-        self.SagError_cal_button.vertical_padding_em = 0
-        #self.SagError_cal_button.set_on_clicked(self.SagError_cal)
+        self.SagErr_cal_button = gui.Button('Sag Error Cal.')
+        self.SagErr_cal_button.enabled = False
+        self.SagErr_cal_button.horizontal_padding_em = 0
+        self.SagErr_cal_button.vertical_padding_em = 0
+        #self.SagErr_cal_button.set_on_clicked(self.SagErr_cal)
 
-        SagError_bar = gui.Horiz(0.25 * self.em)
-        SagError_bar.add_stretch()
-        SagError_bar.add_child(self.SagError_cal_button)
+        SagErr_bar = gui.Horiz(0.25 * self.em)
+        SagErr_bar.add_stretch()
+        SagErr_bar.add_child(self.SagErr_cal_button)
 
         self.Console = gui.Vert(0, gui.Margins(0.5*self.em, 0.5*self.em, 0.25*self.em, 0.5*self.em))
         self.Console.add_child(gui.Label('Surface parameter'))
@@ -141,7 +141,7 @@ class AppWindow:
         self.Console.add_child(data_bar)
         self.Console.add_child(self.Data_View)
         self.Console.add_fixed(0.5*separation_height)
-        self.Console.add_child(SagError_bar)
+        self.Console.add_child(SagErr_bar)
         self.Console.add_fixed(2*separation_height)
         self.Console.add_child(self.ICP_button)
 
@@ -187,7 +187,7 @@ class AppWindow:
         self.Delete_button = gui.Button('Delete')
         self.Delete_button.horizontal_padding_em = 0
         self.Delete_button.vertical_padding_em = 0
-        #self.Delete_button.set_on_clicked(self.Delete_mode)
+        self.Delete_button.set_on_clicked(self.Delete_mode)
 
         Filter_set = gui.VGrid(3, 0.1*self.em,gui.Margins(0.5*self.em, 0.1*self.em, 0.5*self.em, 0.1*self.em))
         Filter_set.add_child(self.Delete_button)
@@ -207,7 +207,7 @@ class AppWindow:
         self.Back_button.enabled = True
         self.Back_button.horizontal_padding_em = 0
         self.Back_button.vertical_padding_em = 0
-        #self.Back_button.set_on_clicked(self.Back)
+        self.Back_button.set_on_clicked(self.Back_Main)
 
         self.Save_button = gui.Button('Save')
         self.Save_button.enabled = True
@@ -383,35 +383,31 @@ class AppWindow:
         self.Load(*self.File_Load)
     
     def Load(self,filepath,scale):
-        Geometry = Model.Object3D(filepath,scale)
+        Geometry = Model.Object3D(filepath,scale = scale)
         Geometry.visible = True
         self.Model_lib[Geometry.name] = Geometry
         if Geometry.type & o3d.io.CONTAINS_TRIANGLES:
             self._scene.scene.add_geometry(Geometry.name, Geometry.mesh, self.material_mesh)
             self._scene.scene.add_geometry('wire_'+Geometry.name, Geometry.wire, self.material_wire)
             bounds = Geometry.mesh.get_axis_aligned_bounding_box()
-            if Geometry.name not in self.Target_list:
-                self.Target_list += [Geometry.name]
-                self.Target_View.set_items(self.Target_list)
+            self.Target_list.add(Geometry.name)
+            self.Target_View.set_items(list(self.Target_list))
         elif Geometry.type & o3d.io.CONTAINS_POINTS:
             Geometry.z_direction = 0
             self._scene.scene.add_geometry(Geometry.name, Geometry.cloud, self.material_cloud)
             bounds = Geometry.cloud.get_axis_aligned_bounding_box()
-            if Geometry.name not in self.Data_list:
-                self.Data_list += [Geometry.name]
-                self.Data_View.set_items(self.Data_list)
+            self.Data_list.add(Geometry.name)
+            self.Data_View.set_items(list(self.Data_list))
         else:
             bounds = o3d.geometry.AxisAlignedBoundingBox(np.array([-1,-1,-1]),np.array([1,1,1]))
         self._scene.setup_camera(60, bounds, bounds.get_center())
 
     def Target_Delete(self):
-        del self.Model_lib[self.Target_View.selected_value]
-        if 'Target' in self.Selected:
-            del self.Selected['Target']
+        del self.Model_lib[self.Target_View.selected_value], self.Selected['Target']
         self._scene.scene.remove_geometry(self.Target_View.selected_value)
         self._scene.scene.remove_geometry('wire_'+self.Target_View.selected_value)
         self.Target_list.remove(self.Target_View.selected_value)
-        self.Target_View.set_items(self.Target_list)
+        self.Target_View.set_items(list(self.Target_list))
         self.Target_button_del.enabled = False
         self.ICP_button.enabled = False
 
@@ -419,29 +415,42 @@ class AppWindow:
         del self.Model_lib[self.Data_View.selected_value], self.Selected['Data']
         self._scene.scene.remove_geometry(self.Data_View.selected_value)
         self.Data_list.remove(self.Data_View.selected_value)
-        self.Data_View.set_items(self.Data_list)
+        self.Data_View.set_items(list(self.Data_list))
         self.Data_button_del.enabled = False
         self.ICP_button.enabled = False
         
     def ICP_button_enabled(self):
-        if 'Target' in self.Selected and self.Model_lib[self.Selected['Target']].type & o3d.io.CONTAINS_POINTS \
-            and 'Data' in self.Selected:
+        if 'Target' in self.Selected and self.Selected['Target'].type & o3d.io.CONTAINS_POINTS and 'Data' in self.Selected:
             return True
         else:
             return False
 
+    def Back_Main(self):
+        del self.active_model
+        self.tabs.selected_index = 0
+        self.window.set_needs_layout()
+        self.Apply_button.enabled = False
+        if hasattr(self,'colorbar'):
+            self.colorbar.visible = False
+
     def Target_View_mouse(self, new_val, is_dbl_click):
         self.Target_button_del.enabled = True
-        self.Selected['Target'] = new_val
+        self.Selected['Target'] = self.Model_lib[new_val]
         self.ICP_button.enabled = self.ICP_button_enabled()
-        if hasattr(self,'Coeff') and self.Model_lib[self.Selected['Target']].type & o3d.io.CONTAINS_TRIANGLES \
-            and is_dbl_click:
+        if hasattr(self,'Coeff') and self.Selected['Target'].type & o3d.io.CONTAINS_TRIANGLES and is_dbl_click:
             self.window.show_dialog(self.Sampling_dialog())
 
     def Data_View_mouse(self, new_val, is_dbl_click):
         self.Data_button_del.enabled = True
-        self.Selected['Data'] = new_val
+        self.Selected['Data'] = self.Model_lib[new_val]
         self.ICP_button.enabled = self.ICP_button_enabled()
+        if is_dbl_click:
+            self.active_model = self.Selected['Data']
+            self.Data_name.text_value = self.active_model.name
+            self.visible_check.checked = self.active_model.visible
+            self.tabs.selected_index = 1
+            self.window.set_needs_layout()
+            self.colorbar.visible = True if hasattr(self.active_model,'SagErr') else False
 
     def Sampling_dialog(self):
         dlg = gui.Dialog('')
@@ -480,13 +489,50 @@ class AppWindow:
             Obj = self.Coeff.Sampling_Surface(self.Model_lib[self.Target_View.selected_value],S,*self.Sampling[1:])
             self.Model_lib[Obj.name] = Obj
             self.Model_lib[Obj.name].visible = True
-            if Obj.name not in self.Target_list:
-                self.Target_list += [Obj.name]
-                self.Target_View.set_items(self.Target_list)
+            self.Target_list.add(Obj.name)
+            self.Target_View.set_items(list(self.Target_list))
             self._scene.scene.add_geometry(Obj.name, Obj.cloud, self.material_cloud)
         except Exception:
             print(S,'Edge detection Failed')
         self.window.close_dialog()
+
+    def Visible_control(self,State):
+        if State == 'Main':
+            Model_list = list(self.Model_lib)
+            for name in Model_list:
+                self._scene.scene.show_geometry(name,True)
+                if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
+                    self._scene.scene.show_geometry('wire_'+name,True)
+        elif State == 'Delete':
+            self._scene.scene.show_geometry(self.active_model.name,True)
+            Model_list = list(self.Model_lib)
+            Model_list.remove(self.active_model.name)
+            for name in Model_list:
+                self._scene.scene.show_geometry(name,False)
+                if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
+                    self._scene.scene.show_geometry('wire_'+name,False)
+            bounds = self.active_model.cloud.get_axis_aligned_bounding_box()
+            self._scene.setup_camera(60, bounds, bounds.get_center())
+
+    def Delete_mode(self):
+        if self.State == 'Main':
+            self.tabs.selected_index = 2
+            self.State = 'Delete'
+            self.window.title = self.State
+            self.window.show_menu(False)
+            self.window.set_needs_layout()
+            self.Correct_button.set_on_clicked(self.Delete_mode)
+            self.picked_idx = []
+            self.RectSelect_idx = []
+            self.origin_colors = deepcopy(self.active_model.cloud.colors)
+            self.Visible_control(self.State)
+        elif self.State == 'Delete':
+            self.State = 'Main'
+            self.window.title = self.State
+            self.tabs.selected_index = 1
+            self.window.show_menu(True)
+            self.window.set_needs_layout()
+            self.Visible_control(self.State)
             
 
 #%%
