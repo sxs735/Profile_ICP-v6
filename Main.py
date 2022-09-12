@@ -839,7 +839,7 @@ class AppWindow:
                 k_value.enabled = False
                 k_value.double_value = np.nan
             else:
-                k_value.enabled = True
+                k_value.enabled = False if WeightClass.selected_text == 'None' else True
                 WeightClass.enabled = True
 
         def ICP_dialog_done():
