@@ -4,7 +4,9 @@ import pandas as pd
 import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
-from matplotlib.colors import ColorConverter
+from matplotlib.colors import ColorConverter, Normalize
+from matplotlib.cm import ScalarMappable
+import matplotlib.pyplot as plt
 import Model
 
 Weight_Function = {'None': None,
@@ -147,7 +149,7 @@ class AppWindow:
         self.SagErr_cal_button.enabled = False
         self.SagErr_cal_button.horizontal_padding_em = 0
         self.SagErr_cal_button.vertical_padding_em = 0
-        #self.SagErr_cal_button.set_on_clicked(self.SagErr_cal)
+        self.SagErr_cal_button.set_on_clicked(self.SagErr_cal)
 
         SagErr_bar = gui.Horiz(0.25 * self.em)
         SagErr_bar.add_stretch()
@@ -171,7 +173,7 @@ class AppWindow:
         self.Direction = gui.Combobox()
         self.Direction.add_item('+')
         self.Direction.add_item('-')
-        #self.Direction.set_on_selection_changed(self.Apply_enabled)
+        self.Direction.set_on_selection_changed(self.Apply_enabled)
         self.Scale_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
         self.Scale_value.enabled = False
         self.Max_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
@@ -204,7 +206,7 @@ class AppWindow:
         self.Filter_button.toggleable = True
         self.Filter_button.horizontal_padding_em = 0.5
         self.Filter_button.vertical_padding_em = 0
-        #self.Filter_button.set_on_clicked(self.Apply_enabled)
+        self.Filter_button.set_on_clicked(self.Apply_enabled)
 
         self.Delete_button = gui.Button('Delete')
         self.Delete_button.horizontal_padding_em = 0
@@ -223,7 +225,7 @@ class AppWindow:
         self.Apply_button.enabled = False
         self.Apply_button.horizontal_padding_em = 0
         self.Apply_button.vertical_padding_em = 0
-        #self.Apply_button.set_on_clicked(self.Apply_clicked)
+        self.Apply_button.set_on_clicked(self.Apply_clicked)
 
         self.Back_button = gui.Button('Back')
         self.Back_button.enabled = True
@@ -235,10 +237,10 @@ class AppWindow:
         self.Save_button.enabled = True
         self.Save_button.horizontal_padding_em = 0
         self.Save_button.vertical_padding_em = 0
-        #self.Save_button.set_on_clicked(self.Save_clicked)
+        self.Save_button.set_on_clicked(self.Save_clicked)
 
         self.visible_check = gui.Checkbox('')
-        #self.visible_check.set_on_checked(self.Change_visible)
+        self.visible_check.set_on_checked(self.Change_visible)
         Detail_button_bar = gui.Horiz(0.25 * self.em)
         Detail_button_bar.add_child(self.visible_check)
         Detail_button_bar.add_stretch()
@@ -495,6 +497,7 @@ class AppWindow:
             self.tabs.selected_index = 1
             self.window.set_needs_layout()
             self.colorbar.visible = True if hasattr(self.active_model,'SagErr') else False
+            self.Update_Result(False)
 
     def Sampling_dialog(self):
         dlg = gui.Dialog('')
@@ -545,7 +548,7 @@ class AppWindow:
         Model_list = list(self.Model_lib)
         if State == 'Main':
             for name in Model_list:
-                self._scene.scene.show_geometry(name,True)
+                self._scene.scene.show_geometry(name,self.Model_lib[name].visible)
                 if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
                     self._scene.scene.show_geometry('wire_'+name,True)
             bounds = self.Model_lib[self.Master_name].mesh.get_axis_aligned_bounding_box()
@@ -573,8 +576,6 @@ class AppWindow:
             for name in Model_list:
                 self._scene.scene.show_geometry(name,False)
 
-
-
     def Delete_mode(self):
         if self.State == 'Main':
             self.tabs.selected_index = 2
@@ -596,7 +597,7 @@ class AppWindow:
             self.active_model.cloud = self.active_model.cloud.select_by_index(self.picked_idx,invert=True)
             if hasattr(self.active_model,'SagErr'):
                 self.active_model.SagErr = np.delete(self.active_model.SagErr,self.picked_idx)
-                #self.Update_Result()
+                self.Update_Result()
             self.Update_Cloud(self.active_model)
             self.Visible_Control(self.State)
             del self.picked_idx, self.MouseSelect, self.origin_colors
@@ -610,6 +611,17 @@ class AppWindow:
             self.window.set_needs_layout()
             self.Visible_Control(self.State)
             del self.picked_idx, self.MouseSelect, self.origin_colors
+        elif self.State[:4] == 'MICP':
+            self.State = 'Main'
+            self.window.title = self.State
+            self.tabs.selected_index = 0
+            self.window.show_menu(True)
+            self.window.set_needs_layout()
+            for i in range(3):
+                self._scene.scene.remove_geometry('MICP_Target'+'_sphere'+str(i))
+                self._scene.scene.remove_geometry('MICP_Data'+'_sphere'+str(i))
+        self.Visible_Control(self.State)
+
 
     def on_mouse_widget3d(self, event):
         def draw_point():
@@ -709,7 +721,7 @@ class AppWindow:
             return gui.Widget.EventCallbackResult.HANDLED
 
         elif self.tabs.selected_index == 1:
-            if event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.DOWN and hasattr(self.active_model,'SagError'):
+            if event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.DOWN and hasattr(self.active_model,'SagErr'):
                 self.Back_button.enabled = False
                 self.Apply_button.enabled = False
                 self.Save_button.enabled = False
@@ -721,7 +733,7 @@ class AppWindow:
                     if name != self.active_model.name:
                         self._scene.scene.show_geometry(name,False)
                         self._scene.scene.show_geometry('wire_'+name,False)
-            elif event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.UP and hasattr(self.active_model,'SagError'):
+            elif event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.UP and hasattr(self.active_model,'SagErr'):
                 self.Back_button.enabled = True
                 self.Apply_button.enabled = True
                 self.Save_button.enabled = True
@@ -755,11 +767,12 @@ class AppWindow:
                 if self.Model_lib[name].type & o3d.io.CONTAINS_POINTS:
                     self.active_model = self.Model_lib[name]
                     if hasattr(self.active_model,'SagErr'):
-                        #self.Update_Result()
+                        self.Update_Result()
                         self.Update_Cloud(self.active_model)
             if Ori_Active_name:
                 self.active_model = self.Model_lib[Ori_Active_name]
             self.window.close_dialog()
+            self.Visible_Control(self.State)
 
         dlg = gui.Dialog('')
         CmapClass = gui.Combobox()
@@ -832,10 +845,10 @@ class AppWindow:
         def ICP_dialog_done():
             self.ICP_parameter = [Manual_check.checked,ICP_select.selected_text,Distance_threshold.double_value,WeightClass.selected_text,k_value.double_value]
             if self.ICP_parameter[0]==False:
-                #self.ICP_button.set_on_clicked(self.Direct_ICP)
+                self.ICP_button.set_on_clicked(self.ICP_Algorithm)
                 self.ICP_button.text = 'Direct ICP'
             else:
-                #self.ICP_button.set_on_clicked(self.Manual_ICP)
+                self.ICP_button.set_on_clicked(self.Manual_ICP)
                 self.ICP_button.text = 'Manual ICP'
             self.window.close_dialog()
         
@@ -936,29 +949,148 @@ class AppWindow:
                 self._scene.scene.remove_geometry('MICP_Target'+'_sphere'+str(i))
                 self._scene.scene.remove_geometry('MICP_Data'+'_sphere'+str(i))
             
-            source = self.Selected['Data'].cloud
-            target = self.Selected['Target'].cloud
+            self.ICP_Algorithm()
+            del self.picked_idx,self.active_model
+
+    def ICP_Algorithm(self):
+        source = self.Selected['Data'].cloud
+        target = self.Selected['Target'].cloud
+        if hasattr(self,'Data_pickup') and hasattr(self,'Target_pickup'):
             corr = np.vstack((self.Data_pickup,self.Target_pickup)).T
             p2p = o3d.pipelines.registration.TransformationEstimationPointToPoint()
             trans_init = p2p.compute_transformation(source, target,o3d.utility.Vector2iVector(corr))
+            del self.Data_pickup, self.Target_pickup
+        else:
+            trans_init = np.identity(4)
+        ICP_Algorithm = self.Set_ICP_Algorithm()
+        max_correspondence_distance = self.ICP_parameter[2]
+        criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration = 3000)
+        reg = o3d.pipelines.registration.registration_icp(source, target, max_correspondence_distance, trans_init, ICP_Algorithm, criteria)
+        TranMatrix = reg.transformation
+        source.transform(TranMatrix)
 
-            ICP_Algorithm = self.Set_ICP_Algorithm()
-            max_correspondence_distance = self.ICP_parameter[2]
-            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration = 3000)
-            reg = o3d.pipelines.registration.registration_icp(source, target, max_correspondence_distance, trans_init, ICP_Algorithm, criteria)
-            TranMatrix = reg.transformation
-            source.transform(TranMatrix)
+        self.Selected['Data'].Surface = self.Selected['Target'].Surface
+        self._scene.scene.remove_geometry(self.Selected['Target'].name)
+        self.Update_Cloud(self.Selected['Data'])
+        self.Visible_Control(self.State)
 
-            self.Selected['Data'].Surface = self.Selected['Target'].Surface
-            self._scene.scene.remove_geometry(self.Selected['Target'].name)
-            self.Update_Cloud(self.Selected['Data'])
-            self.Visible_Control(self.State)
+        self.Target_list.remove(self.Selected['Target'].name)
+        self.Target_View.set_items(self.Target_list)
+        del self.Model_lib[self.Selected['Target'].name], self.Selected['Target'],
+        self.SagErr_cal_button.enabled = True
+        self.ICP_button.enabled = False
 
-            self.Target_list.remove(self.Selected['Target'].name)
-            self.Target_View.set_items(self.Target_list)
-            del self.Model_lib[self.Selected['Target'].name], self.picked_idx, self.active_model, self.Selected['Target']
-            self.SagErr_cal_button.enabled = True
-            self.ICP_button.enabled = False
+    def SagErr_cal(self):
+        self.active_model = self.Model_lib[self.Data_View.selected_value]
+        S = self.active_model.Surface
+        pcd = deepcopy(self.active_model.cloud)
+        pcd.transform(np.linalg.inv(self.Coeff.Matrix44(S)))
+        xyz = np.asarray(pcd.points)
+        zt = self.Coeff.Sag_Z(*xyz[:,:2].T,S)
+        self.active_model.SagErr = (-1)**self.active_model.z_direction*1000*(xyz[:,2]-zt)
+        self.Update_Result()
+        self.Update_Cloud(self.active_model)
+        del self.active_model.Surface
+        self.SagErr_cal_button.enabled = False
+        self.Filter_button.enabled = True
+    
+    def Update_Result(self, calculate = True):
+        self.Direction.selected_index = self.active_model.z_direction
+        self.Scale_value.set_value(self.active_model.scale)
+        if hasattr(self.active_model,'SagErr'):
+            std = np.std(self.active_model.SagErr)
+            vmax = self.active_model.SagErr.max()
+            vmin = self.active_model.SagErr.min()
+            self.Max_value.set_value(vmax)
+            self.Min_value.set_value(vmin)
+            self.FilterMax_value.set_value(vmax)
+            self.FilterMin_value.set_value(vmin)
+            self.Avg_value.set_value(np.average(self.active_model.SagErr))
+            self.Std_value.set_value(std)
+            if calculate:
+                fig_colorbar, mapping = self.SagErr_colorbar(-3*std,3*std,self.ColorMap[1]+self.ColorMap[2])
+                fig_histogram = self.SagErr_histogram(self.active_model.SagErr)
+                self.active_model.colorbar = fig_colorbar
+                self.active_model.histogram = fig_histogram
+                self.active_model.cloud.colors = o3d.utility.Vector3dVector(mapping.to_rgba(self.active_model.SagErr)[:,:3])
+            self.colorbar.update_image(self.active_model.colorbar)
+            self.histogram.update_image(self.active_model.histogram)
+        else:
+            self.Max_value.set_value(np.nan)
+            self.Min_value.set_value(np.nan)
+            self.FilterMax_value.set_value(np.nan)
+            self.FilterMin_value.set_value(np.nan)
+            self.Avg_value.set_value(np.nan)
+            self.Std_value.set_value(np.nan)
+            self.histogram.update_image(o3d.geometry.Image(np.zeros((10*self.em,16*self.em,3),dtype=np.uint8)))
+
+    def SagErr_colorbar(self,vmin,vmax,cmap):
+        fig, ax = plt.subplots(figsize = (4,0.8))
+        fig.subplots_adjust(left=0.04, bottom=0.6, right = 0.96, top = 0.98)
+        digi = 0 if int(f"{vmax:.0E}"[2:])>0 else int(f"{vmax:.0E}"[2:])-1
+        dv = 10**digi
+        norm = Normalize(vmin = vmin-dv, vmax = vmax+dv)
+        mapping = ScalarMappable(norm=norm, cmap = cmap)
+        fig.colorbar(mapping,cax = ax, orientation = 'horizontal',ticks=np.round(np.linspace(vmin,vmax,7),abs(digi)))
+        fig.set_facecolor([235/256,234/256,234/256])
+        ax.set_xlabel(r'$\mu$m', loc='right')
+        fig.canvas.draw()
+        fig = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        fig = o3d.geometry.Image(fig)
+        plt.close('all')
+        return fig,mapping
+
+    def SagErr_histogram(self,SagErr):
+        fig, ax = plt.subplots(figsize = (2.7,2))
+        fig.subplots_adjust(left=0.01, bottom=0.25, right = 0.99, top = 0.98)
+        Yhis,Xhis = np.histogram(SagErr, 25)
+        ax.bar(Xhis[:-1],Yhis,width=Xhis[1]-Xhis[0],color='w',edgecolor = 'k')
+        ax.set_xlabel('Sag Error ('+r'$\mu$m'+')',color = 'w',fontsize = 'small')
+        ax.tick_params(axis='x',colors='w',labelsize= 'small')
+        ax.get_yaxis().set_visible(False)
+        ax.set_facecolor([26/256,26/256,26/256])
+        fig.set_facecolor([45/256,45/256,45/256])
+        fig.canvas.draw()
+        fig = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        fig = o3d.geometry.Image(fig)
+        plt.close('all')
+        return fig
+    
+    def Apply_enabled(self, new_val = 0, new_idx = 0):
+        if self.FilterMax_value.double_value <= self.FilterMin_value.double_value:
+            print('Number Error')
+            self.FilterMax_value.set_value(self.Max_value.double_value)
+            self.FilterMin_value.set_value(self.Min_value.double_value)
+        elif self.Direction.selected_index != self.active_model.z_direction or self.Filter_button.is_on:
+            self.Apply_button.enabled = True
+        else:
+            self.Apply_button.enabled = False
+
+    def Change_visible(self,checkstate):
+        self._scene.scene.show_geometry(self.active_model.name,checkstate)
+        self.active_model.visible = checkstate
+
+    def Apply_clicked(self):
+        if self.Filter_button.is_on:
+            idx = np.argwhere((self.FilterMin_value.double_value<=self.active_model.SagErr)*(self.active_model.SagErr<=self.FilterMax_value.double_value))[:,0]
+            if len(idx)<2:
+                print('Filter Error')
+            elif len(idx) != len(self.active_model.cloud.points):
+                self.active_model.cloud = self.active_model.cloud.select_by_index(idx)
+                self.active_model.SagErr = deepcopy(self.active_model.SagErr[idx])
+                self.active_model.cloud.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
+                self.active_model.cloud.estimate_covariances(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
+                self.active_model.cloud.normalize_normals()
+        if self.active_model.z_direction != self.Direction.selected_index:
+            self.active_model.z_direction = deepcopy(self.Direction.selected_index)
+            self.active_model.SagErr *= -1
+        self.Update_Result()
+        self.Update_Cloud(self.active_model)
+        self.Apply_button.enabled = False
+        self.Filter_button.is_on = False
+
+    def Save_clicked(self):
+        pass
 
             
 
