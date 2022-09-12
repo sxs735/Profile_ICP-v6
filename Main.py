@@ -1,18 +1,40 @@
 from copy import deepcopy
 import numpy as np
+import pandas as pd
 import open3d as o3d
 import open3d.visualization.gui as gui
 import open3d.visualization.rendering as rendering
+from matplotlib.colors import ColorConverter
 import Model
+
+Weight_Function = {'None': None,
+                   'CauchyLoss' : o3d.pipelines.registration.CauchyLoss(k=0.05),
+                   'GMLoss': o3d.pipelines.registration.GMLoss(k=0.05),
+                   'TukeyLoss': o3d.pipelines.registration.TukeyLoss(k=0.05),
+                   'HuberLoss': o3d.pipelines.registration.HuberLoss(k=0.05),
+                   'L1Loss': o3d.pipelines.registration.L1Loss(),
+                   'L2Loss': o3d.pipelines.registration.L2Loss()}
+ICP_Class = {'PointToPoint' : o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+             'PointToPlane' : o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+             'Generalized' : o3d.pipelines.registration.TransformationEstimationForGeneralizedICP()}
+
+cmaps_dir = {'Perceptually Uniform Sequential':['viridis', 'plasma', 'inferno', 'magma', 'cividis'],
+             'Sequential': ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds','YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu','GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn'],
+             'Sequential (2)': ['binary', 'gist_yarg', 'gist_gray', 'gray', 'bone', 'pink','spring', 'summer', 'autumn', 'winter', 'cool', 'Wistia','hot', 'afmhot', 'gist_heat', 'copper'],
+             'Diverging': ['PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdGy', 'RdBu','RdYlBu', 'RdYlGn', 'Spectral', 'coolwarm', 'bwr', 'seismic'],
+             'Cyclic': ['twilight', 'twilight_shifted', 'hsv'],
+             'Qualitative': ['Pastel1', 'Pastel2', 'Paired', 'Accent','Dark2', 'Set1', 'Set2', 'Set3','tab10', 'tab20', 'tab20b', 'tab20c'],
+             'Miscellaneous': ['flag', 'prism', 'ocean', 'gist_earth', 'terrain', 'gist_stern','gnuplot', 'gnuplot2', 'CMRmap', 'cubehelix', 'brg','gist_rainbow', 'rainbow', 'jet', 'turbo', 'nipy_spectral','gist_ncar']}
 
 class AppWindow:
     Model_lib = {}
-    Data_list = set([])
-    Target_list = set([])
+    Data_list = []
+    Target_list = []
     Selected = {}
 
     #Default_value
     State = 'Main'
+    Master_name = ''
     File_Load = [None,1]
     Sampling = [0, 0.5, 0.5]
     ColorMap = ['Miscellaneous','gist_rainbow','_r']
@@ -110,7 +132,7 @@ class AppWindow:
         self.ICP_button = gui.Button('Manual ICP')
         self.ICP_button.horizontal_padding_em = 1.5
         self.ICP_button.vertical_padding_em = 1
-        #self.ICP_button.set_on_clicked(self.Manual_ICP)
+        self.ICP_button.set_on_clicked(self.Manual_ICP)
         self.ICP_button.enabled = False
 
         data_bar = gui.Horiz(0.25 * self.em)
@@ -252,7 +274,7 @@ class AppWindow:
         self.Cancel_button.enabled = True
         self.Cancel_button.horizontal_padding_em = 0
         self.Cancel_button.vertical_padding_em = 0
-        #self.Cancel_button.set_on_clicked(self.Cancel)
+        self.Cancel_button.set_on_clicked(self.Cancel)
 
         self.Correct_button = gui.Button('Correct')
         self.Correct_button.enabled = True
@@ -276,8 +298,8 @@ class AppWindow:
         # 3D widget
         self._scene = gui.SceneWidget()
         self._scene.scene = rendering.Open3DScene(self.window.renderer)
-        #self._scene.set_on_mouse(self._on_mouse_widget3d)
-        #self._scene.set_on_key(self._on_key_widget3d)
+        self._scene.set_on_mouse(self.on_mouse_widget3d)
+        self._scene.set_on_key(self.on_key_widget3d)
         self.window.add_child(self._scene)
 
         self.window.set_on_layout(self._on_layout)
@@ -301,9 +323,9 @@ class AppWindow:
         self.Menu.add_menu("File", file_menu)
         self.Menu.add_menu("Option", Option_menu)
         gui.Application.instance.menubar = self.Menu
-        #self.window.set_on_menu_item_activated(1, self.csv2xyz_dialog)
-        #self.window.set_on_menu_item_activated(11, self.Draw_dialog)
-        #self.window.set_on_menu_item_activated(12, self.ICP_dialog)
+        self.window.set_on_menu_item_activated(1, self.csv2xyz_dialog)
+        self.window.set_on_menu_item_activated(11, self.Draw_dialog)
+        self.window.set_on_menu_item_activated(12, self.ICP_dialog)
 
     def _on_layout(self, layout_context):
         r = self.window.content_rect
@@ -321,6 +343,20 @@ class AppWindow:
         self.colorbar.frame = gui.Rect(r.get_right()-width-pref.width, r.y, pref.width, pref.height)
 
         self.window.close_dialog()
+
+    def csv2xyz_dialog(self):
+        def csv2xyz(filepath):
+            self.window.close_dialog()
+            df = pd.read_csv(filepath,skiprows = 23)
+            df.iloc[:,2] = pd.to_numeric(df.iloc[:,2],'coerce')
+            df = df.dropna().values
+            df = df-np.min(df,axis = 0)
+            np.savetxt(filepath[:-3]+'xyz',df)
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
+        dlg.add_filter('.csv','Point cloud files (.csv)')
+        dlg.set_on_cancel(self.window.close_dialog)
+        dlg.set_on_done(csv2xyz)
+        self.window.show_dialog(dlg)
 
     def Coeff_Load_dialog(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
@@ -385,19 +421,27 @@ class AppWindow:
     def Load(self,filepath,scale):
         Geometry = Model.Object3D(filepath,scale = scale)
         Geometry.visible = True
-        self.Model_lib[Geometry.name] = Geometry
         if Geometry.type & o3d.io.CONTAINS_TRIANGLES:
+            for name in self.Target_list:
+                self._scene.scene.remove_geometry(name)
+                self._scene.scene.remove_geometry('wire_'+name)
+                del self.Model_lib[name]
+            self.Target_list = []
+            self.Master_name = Geometry.name
+            self.Model_lib[Geometry.name] = Geometry
             self._scene.scene.add_geometry(Geometry.name, Geometry.mesh, self.material_mesh)
             self._scene.scene.add_geometry('wire_'+Geometry.name, Geometry.wire, self.material_wire)
             bounds = Geometry.mesh.get_axis_aligned_bounding_box()
-            self.Target_list.add(Geometry.name)
-            self.Target_View.set_items(list(self.Target_list))
+            self.Target_list.append(Geometry.name)
+            self.Target_View.set_items(self.Target_list)
         elif Geometry.type & o3d.io.CONTAINS_POINTS:
             Geometry.z_direction = 0
+            self.Model_lib[Geometry.name] = Geometry
             self._scene.scene.add_geometry(Geometry.name, Geometry.cloud, self.material_cloud)
             bounds = Geometry.cloud.get_axis_aligned_bounding_box()
-            self.Data_list.add(Geometry.name)
-            self.Data_View.set_items(list(self.Data_list))
+            if Geometry.name not in self.Data_list:
+                self.Data_list.append(Geometry.name)
+                self.Data_View.set_items(self.Data_list)
         else:
             bounds = o3d.geometry.AxisAlignedBoundingBox(np.array([-1,-1,-1]),np.array([1,1,1]))
         self._scene.setup_camera(60, bounds, bounds.get_center())
@@ -434,7 +478,7 @@ class AppWindow:
             self.colorbar.visible = False
 
     def Target_View_mouse(self, new_val, is_dbl_click):
-        self.Target_button_del.enabled = True
+        self.Target_button_del.enabled = False if self.Model_lib[new_val].type & o3d.io.CONTAINS_TRIANGLES else True
         self.Selected['Target'] = self.Model_lib[new_val]
         self.ICP_button.enabled = self.ICP_button_enabled()
         if hasattr(self,'Coeff') and self.Selected['Target'].type & o3d.io.CONTAINS_TRIANGLES and is_dbl_click:
@@ -489,30 +533,47 @@ class AppWindow:
             Obj = self.Coeff.Sampling_Surface(self.Model_lib[self.Target_View.selected_value],S,*self.Sampling[1:])
             self.Model_lib[Obj.name] = Obj
             self.Model_lib[Obj.name].visible = True
-            self.Target_list.add(Obj.name)
-            self.Target_View.set_items(list(self.Target_list))
+            if Obj.name not in self.Target_list:
+                self.Target_list.append(Obj.name)
+                self.Target_View.set_items(self.Target_list)
             self._scene.scene.add_geometry(Obj.name, Obj.cloud, self.material_cloud)
         except Exception:
             print(S,'Edge detection Failed')
         self.window.close_dialog()
 
-    def Visible_control(self,State):
+    def Visible_Control(self,State):
+        Model_list = list(self.Model_lib)
         if State == 'Main':
-            Model_list = list(self.Model_lib)
             for name in Model_list:
                 self._scene.scene.show_geometry(name,True)
                 if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
                     self._scene.scene.show_geometry('wire_'+name,True)
-        elif State == 'Delete':
+            bounds = self.Model_lib[self.Master_name].mesh.get_axis_aligned_bounding_box()
+            self._scene.setup_camera(60, bounds, bounds.get_center())
+        
+        elif State == 'Delete' or State == 'MICP_pickup':
             self._scene.scene.show_geometry(self.active_model.name,True)
-            Model_list = list(self.Model_lib)
+            bounds = self.active_model.cloud.get_axis_aligned_bounding_box()
             Model_list.remove(self.active_model.name)
             for name in Model_list:
                 self._scene.scene.show_geometry(name,False)
                 if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
                     self._scene.scene.show_geometry('wire_'+name,False)
-            bounds = self.active_model.cloud.get_axis_aligned_bounding_box()
-            self._scene.setup_camera(60, bounds, bounds.get_center())
+            if State == 'Delete':
+                self._scene.setup_camera(60, bounds, bounds.get_center())
+            else:
+                self._scene.center_of_rotation = bounds.get_center()
+        
+        elif State == 'MICP_Target' or 'MICP_Data':
+            for name in [self.Selected['Target'].name,self.Selected['Data'].name,self.Master_name]:
+                self._scene.scene.show_geometry(name,True)
+                if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
+                    self._scene.scene.show_geometry('wire_'+name,True)
+                Model_list.remove(name)
+            for name in Model_list:
+                self._scene.scene.show_geometry(name,False)
+
+
 
     def Delete_mode(self):
         if self.State == 'Main':
@@ -523,16 +584,382 @@ class AppWindow:
             self.window.set_needs_layout()
             self.Correct_button.set_on_clicked(self.Delete_mode)
             self.picked_idx = []
-            self.RectSelect_idx = []
+            self.MouseSelect = []
             self.origin_colors = deepcopy(self.active_model.cloud.colors)
-            self.Visible_control(self.State)
+            self.Visible_Control(self.State)
         elif self.State == 'Delete':
             self.State = 'Main'
             self.window.title = self.State
             self.tabs.selected_index = 1
             self.window.show_menu(True)
             self.window.set_needs_layout()
-            self.Visible_control(self.State)
+            self.active_model.cloud = self.active_model.cloud.select_by_index(self.picked_idx,invert=True)
+            if hasattr(self.active_model,'SagErr'):
+                self.active_model.SagErr = np.delete(self.active_model.SagErr,self.picked_idx)
+                #self.Update_Result()
+            self.Update_Cloud(self.active_model)
+            self.Visible_Control(self.State)
+            del self.picked_idx, self.MouseSelect, self.origin_colors
+
+    def Cancel(self):
+        if self.State == 'Delete':
+            self.State = 'Main'
+            self.window.title = self.State
+            self.tabs.selected_index = 1
+            self.window.show_menu(True)
+            self.window.set_needs_layout()
+            self.Visible_Control(self.State)
+            del self.picked_idx, self.MouseSelect, self.origin_colors
+
+    def on_mouse_widget3d(self, event):
+        def draw_point():
+            if self.State == 'Delete':
+                self.active_model.cloud.colors = deepcopy(self.origin_colors)
+                np.asarray(self.active_model.cloud.colors)[self.picked_idx] = [0,0,0]
+                self.Update_Cloud(self.active_model)
+            elif self.State[:4] == 'MICP':
+                if len(self.picked_idx) > 3:
+                    self.picked_idx = self.picked_idx[:3]
+                    print('The number of picked-up points is over 3')
+                else:
+                    color = ['orange','cyan','magenta','red']
+                    for i in range(3):
+                        self._scene.scene.remove_geometry(self.State+'_sphere'+str(i))
+                    for i,idx in enumerate(self.picked_idx):
+                        true_point = np.asarray(self.active_model.cloud.points)[idx]
+                        sphere = o3d.geometry.TriangleMesh.create_sphere(0.15).translate(true_point)
+                        sphere.paint_uniform_color(ColorConverter.to_rgb(color[i]))
+                        self._scene.scene.add_geometry(self.State+'_sphere'+str(i),sphere,self.material_cloud)
+
+        def depth_callback(depth_image):
+            if len(self.MouseSelect) == 2:
+                start,end = np.min(self.MouseSelect,axis = 0),np.max(self.MouseSelect,axis = 0)
+                depth = np.asarray(depth_image)[start[1]:end[1], start[0]:end[0]]
+                xyd = [np.append(np.argwhere(depth==d)[0,::-1]+start,d) for d in set(depth.ravel())-set([1])]
+            else:
+                x,y = self.MouseSelect[0]
+                d = np.asarray(depth_image)[y, x]
+                xyd = [[x,y,d]] if d != 1 else []
+            self.MouseSelect = []
+            for x,y,d in xyd:
+                world = self._scene.scene.camera.unproject(x,y,d, self._scene.frame.width, self._scene.frame.height)
+                idx = self.cacl_prefer_indicate(world)
+                if idx in self.picked_idx:
+                    self.picked_idx.remove(idx)
+                else:
+                    self.picked_idx.append(idx)
+            gui.Application.instance.post_to_main_thread(self.window, draw_point)
+
+        x = event.x- self._scene.frame.x
+        y = event.y- self._scene.frame.y
+
+        if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_button_down(gui.MouseButton.LEFT) and event.is_modifier_down(gui.KeyModifier.CTRL)\
+            and (self.tabs.selected_index == 2 or (self.tabs.selected_index == 1 and hasattr(self.active_model,'SagErr'))):
+            self._scene.set_view_controls(gui.SceneWidget.Controls.PICK_POINTS)
+            self.MouseSelect = [[x,y]]
+            self._scene.scene.scene.render_to_depth_image(depth_callback)
+            return gui.Widget.EventCallbackResult.HANDLED
+
+        elif event.type == gui.MouseEvent.Type.DRAG and event.is_button_down(gui.MouseButton.RIGHT) and event.is_modifier_down(gui.KeyModifier.CTRL) \
+            and self.tabs.selected_index == 2 and self.State == 'Delete':
+            self._scene.set_view_controls(gui.SceneWidget.Controls.PICK_POINTS)
+            if len(self.MouseSelect) > 1:
+                self.MouseSelect[-1] = [x,y]
+                start = np.min(self.MouseSelect,axis = 0)+[self._scene.frame.x,self._scene.frame.y]
+                end = np.max(self.MouseSelect,axis = 0)+[self._scene.frame.x,self._scene.frame.y]
+                L,W = abs(start[0]-end[0]),abs(start[1]-end[1])
+                if L>self.em and W>self.em:
+                    self._RectSelect.visible = True
+                    self._RectSelect.frame = gui.Rect(start[0], start[1], L, W)
+                else:
+                    self._RectSelect.visible = False
+            else:
+                self.MouseSelect += [[x,y]]
+                self._RectSelect.visible = False
+            return gui.Widget.EventCallbackResult.HANDLED
+
+        elif event.type == gui.MouseEvent.Type.BUTTON_UP \
+            and self.tabs.selected_index == 2 and self.State == 'Delete':
+            self._scene.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
+            if self._RectSelect.visible:
+                self._scene.scene.scene.render_to_depth_image(depth_callback)
+                self._RectSelect.visible = False
+            else:
+                self.RectSelect = []
+            return gui.Widget.EventCallbackResult.HANDLED
+        else:
+            return gui.Widget.EventCallbackResult.IGNORED
+    
+    def cacl_prefer_indicate(self, point):
+        pcd_tree = o3d.geometry.KDTreeFlann(self.active_model.cloud)
+        [k, idx, _] = pcd_tree.search_knn_vector_3d(point, 1)
+        return idx[0]
+
+    def on_key_widget3d(self, event):
+        if self.State[:4] == 'MICP':
+            name ='Data' if self.State[5:]=='Target' else 'Target'
+            if event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.DOWN:
+                self.Visible_Control('MICP_pickup')
+                for name in ['MICP_'+name+'_sphere'+str(i) for i in range(3)]:
+                    self._scene.scene.show_geometry(name,False)
+            elif event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.UP:
+                self.Visible_Control(self.State)
+                for name in ['MICP_Target'+'_sphere'+str(i) for i in range(3)]+['MICP_Data'+'_sphere'+str(i) for i in range(3)]:
+                    self._scene.scene.show_geometry(name,True)
+            return gui.Widget.EventCallbackResult.HANDLED
+
+        elif self.tabs.selected_index == 1:
+            if event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.DOWN and hasattr(self.active_model,'SagError'):
+                self.Back_button.enabled = False
+                self.Apply_button.enabled = False
+                self.Save_button.enabled = False
+                self._info.visible = True
+                self.window.show_menu(False)
+                self.window.set_needs_layout()
+                self._scene.set_view_controls(gui.SceneWidget.Controls.PICK_POINTS)
+                for name in list(self.Target_model)+list(self.Data_model):
+                    if name != self.active_model.name:
+                        self._scene.scene.show_geometry(name,False)
+                        self._scene.scene.show_geometry('wire_'+name,False)
+            elif event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.UP and hasattr(self.active_model,'SagError'):
+                self.Back_button.enabled = True
+                self.Apply_button.enabled = True
+                self.Save_button.enabled = True
+                self._info.visible = False
+                self.window.show_menu(True)
+                self.window.set_needs_layout()
+                self._scene.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
+                for name in list(self.Target_model)+list(self.Data_model):
+                    if name != self.active_model.name:
+                        self._scene.scene.show_geometry(name,True)
+                        self._scene.scene.show_geometry('wire_'+name,True)
+            return gui.Widget.EventCallbackResult.HANDLED
+        else:
+            return gui.Widget.EventCallbackResult.IGNORED
+    
+    def Update_Cloud(self,Model):
+        self._scene.scene.remove_geometry(Model.name)
+        self._scene.scene.add_geometry(Model.name,Model.cloud,self.material_cloud)
+
+    def Draw_dialog(self):
+        def ChangeClass(newitem,newidx):
+            Cmaplist.clear_items()
+            for col in cmaps_dir[newitem]:
+                Cmaplist.add_item(col)
+            Cmaplist.selected_index = 0
+            Check_R.checked = False
+        def Setting_dialog_done():
+            self.ColorMap = [CmapClass.selected_text,Cmaplist.selected_text,'_r' if Check_R.checked else '']
+            Ori_Active_name = deepcopy(self.active_model.name) if hasattr(self,'active_model') else ''
+            for name in  list(self.Model_lib):
+                if self.Model_lib[name].type & o3d.io.CONTAINS_POINTS:
+                    self.active_model = self.Model_lib[name]
+                    if hasattr(self.active_model,'SagErr'):
+                        #self.Update_Result()
+                        self.Update_Cloud(self.active_model)
+            if Ori_Active_name:
+                self.active_model = self.Model_lib[Ori_Active_name]
+            self.window.close_dialog()
+
+        dlg = gui.Dialog('')
+        CmapClass = gui.Combobox()
+        for col in  cmaps_dir:
+            CmapClass.add_item(col)
+        CmapClass.selected_text = self.ColorMap[0]
+        CmapClass.set_on_selection_changed(ChangeClass)
+        Cmaplist = gui.Combobox()
+        for col in  cmaps_dir[CmapClass.selected_text]:
+            Cmaplist.add_item(col)
+        Cmaplist.selected_text = self.ColorMap[1]
+
+        dig_done = gui.Button('Done')
+        dig_done.vertical_padding_em = 0
+        dig_done.set_on_clicked(Setting_dialog_done)
+        dig_cancel = gui.Button('Cancel')
+        dig_cancel.vertical_padding_em = 0
+        dig_cancel.set_on_clicked(self.window.close_dialog)
+        
+        buttonbar = gui.Horiz(0.25 * self.em)
+        buttonbar.add_stretch()
+        buttonbar.add_child(dig_cancel)
+        buttonbar.add_fixed(0.2*self.em)
+        buttonbar.add_child(dig_done)
+        
+        vgrid = gui.VGrid(2, 0.1*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+        vgrid.add_child(gui.Label('Class'))
+        vgrid.add_child(CmapClass)
+        vgrid.add_child(gui.Label('Colormap'))
+        vgrid.add_child(Cmaplist)
+
+        Check_R = gui.Checkbox('Reverse')
+        Reversebar = gui.Horiz(0.25 * self.em)
+        Reversebar.add_stretch()
+        Reversebar.add_child(Check_R)
+        Check_R.checked = True if self.ColorMap[2] == '_r' else False
+
+        vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        vert.add_child(gui.Label('Draw Setting'))
+        vert.add_fixed(0.2*self.em)
+        vert.add_child(vgrid)
+        vert.add_child(Reversebar)
+        vert.add_fixed(0.2*self.em)
+        vert.add_child(buttonbar)
+        dlg.add_child(vert)
+        self.window.show_dialog(dlg)
+
+    def ICP_dialog(self):
+        def ChangeWeight(newitem,newidx):
+            if np.isnan(k_value.double_value):
+                k_value.double_value = 0.05
+            if newitem == 'None' or newitem == 'L1Loss' or newitem == 'L2Loss':
+                k_value.enabled = False
+                k_value.double_value = np.nan
+            else:
+                k_value.enabled = True
+
+        def ChangeICP(newitem,newidx):
+            if np.isnan(k_value.double_value):
+                k_value.double_value = 0.05
+            if newitem == 'PointToPoint':
+                WeightClass.selected_text = 'None'
+                WeightClass.enabled = False
+                k_value.enabled = False
+                k_value.double_value = np.nan
+            else:
+                k_value.enabled = True
+                WeightClass.enabled = True
+
+        def ICP_dialog_done():
+            self.ICP_parameter = [Manual_check.checked,ICP_select.selected_text,Distance_threshold.double_value,WeightClass.selected_text,k_value.double_value]
+            if self.ICP_parameter[0]==False:
+                #self.ICP_button.set_on_clicked(self.Direct_ICP)
+                self.ICP_button.text = 'Direct ICP'
+            else:
+                #self.ICP_button.set_on_clicked(self.Manual_ICP)
+                self.ICP_button.text = 'Manual ICP'
+            self.window.close_dialog()
+        
+        dlg = gui.Dialog('')
+        dig_done = gui.Button('Done')
+        dig_done.vertical_padding_em = 0
+        dig_done.set_on_clicked(ICP_dialog_done)
+        dig_cancel = gui.Button('Cancel')
+        dig_cancel.vertical_padding_em = 0
+        dig_cancel.set_on_clicked(self.window.close_dialog)
+        Manual_check = gui.Checkbox('Manual')
+        Manual_check.checked = self.ICP_parameter[0]
+        
+        buttonbar = gui.Horiz(0.25 * self.em)
+        buttonbar.add_child(Manual_check)
+        buttonbar.add_stretch()
+        buttonbar.add_child(dig_cancel)
+        buttonbar.add_fixed(0.2*self.em)
+        buttonbar.add_child(dig_done)
+
+        ICP_select = gui.Combobox()
+        for item in  ICP_Class:
+            ICP_select.add_item(item)
+        ICP_select.selected_text = self.ICP_parameter[1]
+        ICP_select.set_on_selection_changed(ChangeICP)
+        Distance_threshold = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        Distance_threshold.double_value = self.ICP_parameter[2]
+        WeightClass = gui.Combobox()
+        for item in Weight_Function:
+            WeightClass.add_item(item)
+        WeightClass.selected_text = self.ICP_parameter[3]
+        WeightClass.set_on_selection_changed(ChangeWeight)
+        WeightClass.enabled = False if self.ICP_parameter[1] == 'PointToPoint' else True
+        k_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        k_value.double_value = self.ICP_parameter[4]
+        k_value.enabled = False if np.isnan(k_value.double_value) else True
+
+        vgrid = gui.VGrid(2, 0.1*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+        vgrid.add_child(gui.Label('ICP Algorithm'))
+        vgrid.add_child(ICP_select)
+        vgrid.add_child(gui.Label('Distance threshold'))
+        vgrid.add_child(Distance_threshold)
+        vgrid.add_child(gui.Label('Weight Function'))
+        vgrid.add_child(WeightClass)
+        vgrid.add_child(gui.Label('k value'))
+        vgrid.add_child(k_value)
+
+        vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        vert.add_child(gui.Label('Robust Kernel'))
+        vert.add_fixed(0.2*self.em)
+        vert.add_child(vgrid)
+        vert.add_fixed(0.2*self.em)
+        vert.add_child(buttonbar)
+        dlg.add_child(vert)
+        self.window.show_dialog(dlg)
+
+    def Set_ICP_Algorithm(self):
+        ICP_Algorithm = ICP_Class[self.ICP_parameter[1]]
+        if self.ICP_parameter[3] != 'None':
+            loss = Weight_Function[self.ICP_parameter[3]]
+            if hasattr(Weight_Function[self.ICP_parameter[3]],'k'):
+                loss.k = self.ICP_parameter[4]
+            ICP_Algorithm.kernel = loss
+        return ICP_Algorithm
+
+    def Manual_ICP(self):
+        if self.State == 'Main':
+            self.tabs.selected_index = 2
+            self.State = 'MICP_Target'
+            self.Visible_Control(self.State)
+            self.window.title = self.State
+            self.window.show_menu(False)
+            self.window.set_needs_layout()
+            self.Correct_button.set_on_clicked(self.Manual_ICP)
+            self.picked_idx = []
+            self.active_model = self.Selected['Target']
+            bounds = self.active_model.cloud.get_axis_aligned_bounding_box()
+            self._scene.setup_camera(60, bounds, bounds.get_center())
+        
+        elif self.State == 'MICP_Target' and len(self.picked_idx) >= 3:
+            self.Target_pickup = deepcopy(self.picked_idx)
+            self.State = 'MICP_Data'
+            self.window.title = self.State
+            self.picked_idx = []
+            self.active_model = self.Selected['Data']
+            bounds = self.active_model.cloud.get_axis_aligned_bounding_box()
+            self._scene.setup_camera(60, bounds, bounds.get_center())
+            
+        elif self.State == 'MICP_Data' and len(self.picked_idx) >= 3:
+            self.State = 'Main'
+            self.window.title = self.State
+            self.tabs.selected_index = 0
+            self.window.show_menu(True)
+            self.window.set_needs_layout()
+            self.Data_pickup = deepcopy(self.picked_idx)
+
+            for i in range(3):
+                self._scene.scene.remove_geometry('MICP_Target'+'_sphere'+str(i))
+                self._scene.scene.remove_geometry('MICP_Data'+'_sphere'+str(i))
+            
+            source = self.Selected['Data'].cloud
+            target = self.Selected['Target'].cloud
+            corr = np.vstack((self.Data_pickup,self.Target_pickup)).T
+            p2p = o3d.pipelines.registration.TransformationEstimationPointToPoint()
+            trans_init = p2p.compute_transformation(source, target,o3d.utility.Vector2iVector(corr))
+
+            ICP_Algorithm = self.Set_ICP_Algorithm()
+            max_correspondence_distance = self.ICP_parameter[2]
+            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration = 3000)
+            reg = o3d.pipelines.registration.registration_icp(source, target, max_correspondence_distance, trans_init, ICP_Algorithm, criteria)
+            TranMatrix = reg.transformation
+            source.transform(TranMatrix)
+
+            self.Selected['Data'].Surface = self.Selected['Target'].Surface
+            self._scene.scene.remove_geometry(self.Selected['Target'].name)
+            self.Update_Cloud(self.Selected['Data'])
+            self.Visible_Control(self.State)
+
+            self.Target_list.remove(self.Selected['Target'].name)
+            self.Target_View.set_items(self.Target_list)
+            del self.Model_lib[self.Selected['Target'].name], self.picked_idx, self.active_model, self.Selected['Target']
+            self.SagErr_cal_button.enabled = True
+            self.ICP_button.enabled = False
+
             
 
 #%%
