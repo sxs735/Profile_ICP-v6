@@ -20,7 +20,7 @@ ICP_Class = {'PointToPoint' : o3d.pipelines.registration.TransformationEstimatio
              'PointToPlane' : o3d.pipelines.registration.TransformationEstimationPointToPlane(),
              'Generalized' : o3d.pipelines.registration.TransformationEstimationForGeneralizedICP()}
 
-cmaps_dir = {'Perceptually Uniform Sequential':['viridis', 'plasma', 'inferno', 'magma', 'cividis'],
+cmaps_dir = {'Uniform Sequential':['viridis', 'plasma', 'inferno', 'magma', 'cividis'],
              'Sequential': ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds','YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu','GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn'],
              'Sequential (2)': ['binary', 'gist_yarg', 'gist_gray', 'gray', 'bone', 'pink','spring', 'summer', 'autumn', 'winter', 'cool', 'Wistia','hot', 'afmhot', 'gist_heat', 'copper'],
              'Diverging': ['PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdGy', 'RdBu','RdYlBu', 'RdYlGn', 'Spectral', 'coolwarm', 'bwr', 'seismic'],
@@ -36,10 +36,9 @@ class AppWindow:
 
     #Default_value
     State = 'Main'
-    Master_name = ''
     File_Load = [None,1]
     Sampling = [0, 0.5, 0.5]
-    ColorMap = ['Miscellaneous','gist_rainbow','_r']
+    ColorMap = ['Miscellaneous','gist_rainbow','_r',False,np.nan,np.nan]
     ICP_parameter = [True,'PointToPoint',0.1,'None',np.nan]
 
     # Material
@@ -62,8 +61,6 @@ class AppWindow:
         self.em = self.window.theme.font_size
         separation_height = int(round(0.5 * self.em))
 
-        self._info = gui.Label('')
-        self._info.visible = False
         self.Manual = gui.Label('Manual')
         self.Manual.background_color = gui.Color(0,0,0,0)
         self.Manual.text_color = gui.Color(0,0,0,1)
@@ -88,7 +85,7 @@ class AppWindow:
         self.Change_Tbutton = gui.Button('')
         self.Change_Tbutton.horizontal_padding_em = 0.5
         self.Change_Tbutton.vertical_padding_em = 0
-        #self.Change_Tbutton.set_on_clicked(self.Change_Target)
+        self.Change_Tbutton.set_on_clicked(self.To_Data)
         self.Change_Tbutton.enabled = False
 
         target_bar = gui.Horiz(0.25 * self.em)
@@ -128,7 +125,7 @@ class AppWindow:
         self.Change_Dbutton = gui.Button('')
         self.Change_Dbutton.horizontal_padding_em = 0.5
         self.Change_Dbutton.vertical_padding_em = 0
-        #self.Change_Dbutton.set_on_clicked(self.Change_Data)
+        self.Change_Dbutton.set_on_clicked(self.To_Target)
         self.Change_Dbutton.enabled = False
 
         self.ICP_button = gui.Button('Manual ICP')
@@ -306,7 +303,6 @@ class AppWindow:
 
         self.window.set_on_layout(self._on_layout)
         self.window.add_child(self.tabs)
-        self.window.add_child(self._info)
         self.window.add_child(self.Manual)
         self.window.add_child(self.colorbar)
 
@@ -319,15 +315,23 @@ class AppWindow:
         self.Menu = gui.Menu()
         file_menu = gui.Menu()
         file_menu.add_item("csv2xyz", 1)
-        Option_menu = gui.Menu()
-        Option_menu.add_item('Drawing settings',11)
-        Option_menu.add_item('ICP settings',12)
+        #file_menu.add_item("Export Current Image...",2)
+        self.Option_menu = gui.Menu()
+        self.Option_menu.add_item('Drawing settings',11)
+        self.Option_menu.add_item('ICP settings',12)
+        self.Option_menu.add_separator()
+        self.Option_menu.add_item('Master_visible',13)
+        self.Option_menu.set_checked(13, False)
+        self.window.set_on_menu_item_activated(13, self.Master_visible)
         self.Menu.add_menu("File", file_menu)
-        self.Menu.add_menu("Option", Option_menu)
+        self.Menu.add_menu("Option", self.Option_menu)
         gui.Application.instance.menubar = self.Menu
         self.window.set_on_menu_item_activated(1, self.csv2xyz_dialog)
+        #self.window.set_on_menu_item_activated(2, self.Export_image)
         self.window.set_on_menu_item_activated(11, self.Draw_dialog)
         self.window.set_on_menu_item_activated(12, self.ICP_dialog)
+
+        self.Menu.set_enabled(13,False)
 
     def _on_layout(self, layout_context):
         r = self.window.content_rect
@@ -337,8 +341,6 @@ class AppWindow:
         height = min(r.height,visible_panel.calc_preferred_size(layout_context, gui.Widget.Constraints()).height)
         self.tabs.frame = gui.Rect(r.get_right() - width, r.y, width,height)
         
-        pref = self._info.calc_preferred_size(layout_context, gui.Widget.Constraints())
-        self._info.frame = gui.Rect(r.x, r.get_bottom()-pref.height, pref.width, pref.height)
         pref = self.Manual.calc_preferred_size(layout_context, gui.Widget.Constraints())
         self.Manual.frame = gui.Rect(r.get_right()-pref.width, r.get_bottom()-pref.height, pref.width, pref.height)
         pref = self.colorbar.calc_preferred_size(layout_context, gui.Widget.Constraints())
@@ -359,6 +361,28 @@ class AppWindow:
         dlg.set_on_cancel(self.window.close_dialog)
         dlg.set_on_done(csv2xyz)
         self.window.show_dialog(dlg)
+
+    # def Export_image(self):
+    #     def Export_image(path, width, height):
+    #         def on_image(image):
+    #             img = image
+    #             quality = 9  # png
+    #             if path.endswith(".jpg"):
+    #                 quality = 100
+    #             o3d.io.write_image(path, img, quality)
+    #         self._scene.scene.scene.render_to_image(on_image)
+
+    #     def Export_dialog_done(filename):
+    #         self.window.close_dialog()
+    #         frame = self._scene.frame
+    #         Export_image(filename, frame.width, frame.height)
+
+    #     dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save",self.window.theme)
+    #     dlg.add_filter(".png", "PNG files (.png)")
+    #     dlg.set_on_cancel(self.window.close_dialog)
+    #     dlg.set_on_done(Export_dialog_done)
+    #     self.window.show_dialog(dlg)
+
 
     def Coeff_Load_dialog(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
@@ -429,13 +453,17 @@ class AppWindow:
                 self._scene.scene.remove_geometry('wire_'+name)
                 del self.Model_lib[name]
             self.Target_list = []
-            self.Master_name = Geometry.name
             self.Model_lib[Geometry.name] = Geometry
             self._scene.scene.add_geometry(Geometry.name, Geometry.mesh, self.material_mesh)
             self._scene.scene.add_geometry('wire_'+Geometry.name, Geometry.wire, self.material_wire)
+
             bounds = Geometry.mesh.get_axis_aligned_bounding_box()
             self.Target_list.append(Geometry.name)
             self.Target_View.set_items(self.Target_list)
+            self.Master_name = Geometry.name
+            self.Option_menu.set_checked(13, True)
+            self.Menu.set_enabled(13,True)
+
         elif Geometry.type & o3d.io.CONTAINS_POINTS:
             Geometry.z_direction = 0
             self.Model_lib[Geometry.name] = Geometry
@@ -453,7 +481,8 @@ class AppWindow:
         self._scene.scene.remove_geometry(self.Target_View.selected_value)
         self._scene.scene.remove_geometry('wire_'+self.Target_View.selected_value)
         self.Target_list.remove(self.Target_View.selected_value)
-        self.Target_View.set_items(list(self.Target_list))
+        self.Target_View.set_items(self.Target_list)
+        self.Change_Tbutton.enabled = False
         self.Target_button_del.enabled = False
         self.ICP_button.enabled = False
 
@@ -461,10 +490,36 @@ class AppWindow:
         del self.Model_lib[self.Data_View.selected_value], self.Selected['Data']
         self._scene.scene.remove_geometry(self.Data_View.selected_value)
         self.Data_list.remove(self.Data_View.selected_value)
-        self.Data_View.set_items(list(self.Data_list))
+        self.Data_View.set_items(self.Data_list)
+        self.Change_Dbutton.enabled = False
         self.Data_button_del.enabled = False
         self.ICP_button.enabled = False
-        
+
+    def To_Target(self):
+        self.Change_List('Data')
+    
+    def To_Data(self):
+        self.Change_List('Target')
+
+    def Change_List(self,button):
+        name = self.Selected[button].name
+        self.Selected[button].visible = True
+        List1 = self.Target_list if button == 'Target' else self.Data_list
+        List2 = self.Target_list if button == 'Data' else self.Data_list
+        if name[:3] != '{T}' and '{T}'+name not in self.Model_lib:
+            color = [0,0,1] if button == 'Target' else [0,0.392,0]
+            self.Model_lib[name].cloud.paint_uniform_color(color)
+            List1.remove(name)
+            List2.append('{T}'+name)
+            self.Model_lib['{T}'+name] = self.Model_lib.pop(name)
+            self.Selected[button].name = '{T}'+name
+            self.Target_View.set_items(self.Target_list)
+            self.Data_View.set_items(self.Data_list)
+            self._scene.scene.remove_geometry(name)
+            self._scene.scene.add_geometry('{T}'+name,self.Selected[button].cloud,self.material_cloud)
+        else:
+            print(name+' do not transfer')
+
     def ICP_button_enabled(self):
         if 'Target' in self.Selected and self.Selected['Target'].type & o3d.io.CONTAINS_POINTS and 'Data' in self.Selected:
             return True
@@ -472,10 +527,12 @@ class AppWindow:
             return False
 
     def Back_Main(self):
-        del self.active_model
+        self.Clean_Mark()
+        del self.active_model,self.label_list,self.picked_idx
         self.tabs.selected_index = 0
         self.window.set_needs_layout()
         self.Apply_button.enabled = False
+        self.Filter_button.is_on = False
         if hasattr(self,'colorbar'):
             self.colorbar.visible = False
 
@@ -485,11 +542,14 @@ class AppWindow:
         self.ICP_button.enabled = self.ICP_button_enabled()
         if hasattr(self,'Coeff') and self.Selected['Target'].type & o3d.io.CONTAINS_TRIANGLES and is_dbl_click:
             self.window.show_dialog(self.Sampling_dialog())
+        self.Change_Tbutton.enabled = False if self.Model_lib[new_val].type & o3d.io.CONTAINS_TRIANGLES else True 
 
     def Data_View_mouse(self, new_val, is_dbl_click):
         self.Data_button_del.enabled = True
         self.Selected['Data'] = self.Model_lib[new_val]
+        self.SagErr_cal_button.enabled = True if hasattr(self.Selected['Data'],'Surface') and hasattr(self,'Coeff') else False 
         self.ICP_button.enabled = self.ICP_button_enabled()
+        self.Change_Dbutton.enabled = True 
         if is_dbl_click:
             self.active_model = self.Selected['Data']
             self.Data_name.text_value = self.active_model.name
@@ -497,6 +557,8 @@ class AppWindow:
             self.tabs.selected_index = 1
             self.window.set_needs_layout()
             self.colorbar.visible = True if hasattr(self.active_model,'SagErr') else False
+            self.picked_idx = []
+            self.label_list = []
             self.Update_Result(False)
 
     def Sampling_dialog(self):
@@ -544,20 +606,38 @@ class AppWindow:
             print(S,'Edge detection Failed')
         self.window.close_dialog()
 
+    def Master_visible(self):
+        self.Option_menu.set_checked(13,not self.Option_menu.is_checked(13))
+        self.Model_lib[self.Master_name].visible = self.Option_menu.is_checked(13)
+        self.Visible_Control(self.State)
+
     def Visible_Control(self,State):
         Model_list = list(self.Model_lib)
         if State == 'Main':
             for name in Model_list:
                 self._scene.scene.show_geometry(name,self.Model_lib[name].visible)
                 if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
-                    self._scene.scene.show_geometry('wire_'+name,True)
-            bounds = self.Model_lib[self.Master_name].mesh.get_axis_aligned_bounding_box()
-            self._scene.setup_camera(60, bounds, bounds.get_center())
-        
+                    self._scene.scene.show_geometry('wire_'+name,self.Model_lib[name].visible)
+            if hasattr(self,'Master_name'):
+                bounds = self.Model_lib[self.Master_name].mesh.get_axis_aligned_bounding_box()
+                self._scene.center_of_rotation = bounds.get_center()
+                #self._scene.setup_camera(60, bounds, bounds.get_center())
+            self.Menu.set_enabled(1,True)
+            self.Menu.set_enabled(11,True)
+            self.Menu.set_enabled(12,True)
+            if hasattr(self,'Master_name'):
+                self.Menu.set_enabled(13,True)
+            else:
+                self.Menu.set_enabled(13,False)
+
         elif State == 'Delete' or State == 'MICP_pickup':
             self._scene.scene.show_geometry(self.active_model.name,True)
             bounds = self.active_model.cloud.get_axis_aligned_bounding_box()
             Model_list.remove(self.active_model.name)
+            self.Menu.set_enabled(1,False)
+            self.Menu.set_enabled(11,False)
+            self.Menu.set_enabled(12,False)
+            self.Menu.set_enabled(13,False)
             for name in Model_list:
                 self._scene.scene.show_geometry(name,False)
                 if self.Model_lib[name].type & o3d.io.CONTAINS_TRIANGLES:
@@ -581,18 +661,17 @@ class AppWindow:
             self.tabs.selected_index = 2
             self.State = 'Delete'
             self.window.title = self.State
-            self.window.show_menu(False)
             self.window.set_needs_layout()
             self.Correct_button.set_on_clicked(self.Delete_mode)
             self.picked_idx = []
             self.MouseSelect = []
             self.origin_colors = deepcopy(self.active_model.cloud.colors)
             self.Visible_Control(self.State)
+            self.Clean_Mark()
         elif self.State == 'Delete':
             self.State = 'Main'
             self.window.title = self.State
             self.tabs.selected_index = 1
-            self.window.show_menu(True)
             self.window.set_needs_layout()
             self.active_model.cloud = self.active_model.cloud.select_by_index(self.picked_idx,invert=True)
             if hasattr(self.active_model,'SagErr'):
@@ -600,28 +679,38 @@ class AppWindow:
                 self.Update_Result()
             self.Update_Cloud(self.active_model)
             self.Visible_Control(self.State)
-            del self.picked_idx, self.MouseSelect, self.origin_colors
+            del self.MouseSelect, self.origin_colors
+            self.picked_idx = []
 
     def Cancel(self):
         if self.State == 'Delete':
             self.State = 'Main'
             self.window.title = self.State
             self.tabs.selected_index = 1
-            self.window.show_menu(True)
             self.window.set_needs_layout()
-            self.Visible_Control(self.State)
-            del self.picked_idx, self.MouseSelect, self.origin_colors
+            self.picked_idx = []
+            self.active_model.cloud.colors = self.origin_colors
+            self.Update_Cloud(self.active_model)
+            del self.MouseSelect, self.origin_colors
         elif self.State[:4] == 'MICP':
             self.State = 'Main'
             self.window.title = self.State
             self.tabs.selected_index = 0
-            self.window.show_menu(True)
             self.window.set_needs_layout()
             for i in range(3):
                 self._scene.scene.remove_geometry('MICP_Target'+'_sphere'+str(i))
                 self._scene.scene.remove_geometry('MICP_Data'+'_sphere'+str(i))
         self.Visible_Control(self.State)
 
+    def Clean_Mark(self):
+        for i in range(3):
+                self._scene.scene.remove_geometry('MICP_Target'+'_sphere'+str(i))
+                self._scene.scene.remove_geometry('MICP_Data'+'_sphere'+str(i))
+        if hasattr(self,'label_list'):
+            for i,label in enumerate(self.label_list):
+                self._scene.remove_3d_label(label)
+                self._scene.scene.remove_geometry('label_sphere'+str(i))
+            self.label_list = []
 
     def on_mouse_widget3d(self, event):
         def draw_point():
@@ -642,6 +731,16 @@ class AppWindow:
                         sphere = o3d.geometry.TriangleMesh.create_sphere(0.15).translate(true_point)
                         sphere.paint_uniform_color(ColorConverter.to_rgb(color[i]))
                         self._scene.scene.add_geometry(self.State+'_sphere'+str(i),sphere,self.material_cloud)
+            elif self.tabs.selected_index == 1 and hasattr(self.active_model,'SagErr'):
+                self.Clean_Mark()
+                for i,idx in enumerate(self.picked_idx):
+                    true_point = np.asarray(self.active_model.cloud.points)[idx]
+                    dz = self.active_model.SagErr[idx]
+                    label3d = self._scene.add_3d_label(true_point, '%.3f'%dz)
+                    sphere = o3d.geometry.TriangleMesh.create_sphere(0.25).translate(true_point)
+                    sphere.paint_uniform_color(ColorConverter.to_rgb('k'))
+                    self._scene.scene.add_geometry('label_sphere'+str(i),sphere,self.material_cloud)
+                    self.label_list.append(label3d)
 
         def depth_callback(depth_image):
             if len(self.MouseSelect) == 2:
@@ -720,31 +819,22 @@ class AppWindow:
                     self._scene.scene.show_geometry(name,True)
             return gui.Widget.EventCallbackResult.HANDLED
 
-        elif self.tabs.selected_index == 1:
-            if event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.DOWN and hasattr(self.active_model,'SagErr'):
+        elif self.tabs.selected_index == 1 and event.key == gui.KeyName.LEFT_CONTROL and hasattr(self.active_model,'SagErr'):
+            if  event.type == gui.KeyEvent.DOWN :
                 self.Back_button.enabled = False
                 self.Apply_button.enabled = False
                 self.Save_button.enabled = False
-                self._info.visible = True
-                self.window.show_menu(False)
                 self.window.set_needs_layout()
                 self._scene.set_view_controls(gui.SceneWidget.Controls.PICK_POINTS)
-                for name in list(self.Target_model)+list(self.Data_model):
-                    if name != self.active_model.name:
-                        self._scene.scene.show_geometry(name,False)
-                        self._scene.scene.show_geometry('wire_'+name,False)
-            elif event.key == gui.KeyName.LEFT_CONTROL and event.type == gui.KeyEvent.UP and hasattr(self.active_model,'SagErr'):
+                self.Visible_Control('MICP_pickup')
+
+            elif event.type == gui.KeyEvent.UP:
                 self.Back_button.enabled = True
-                self.Apply_button.enabled = True
+                self.Apply_enabled()
                 self.Save_button.enabled = True
-                self._info.visible = False
-                self.window.show_menu(True)
                 self.window.set_needs_layout()
                 self._scene.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
-                for name in list(self.Target_model)+list(self.Data_model):
-                    if name != self.active_model.name:
-                        self._scene.scene.show_geometry(name,True)
-                        self._scene.scene.show_geometry('wire_'+name,True)
+                self.Visible_Control(self.State)
             return gui.Widget.EventCallbackResult.HANDLED
         else:
             return gui.Widget.EventCallbackResult.IGNORED
@@ -761,7 +851,8 @@ class AppWindow:
             Cmaplist.selected_index = 0
             Check_R.checked = False
         def Setting_dialog_done():
-            self.ColorMap = [CmapClass.selected_text,Cmaplist.selected_text,'_r' if Check_R.checked else '']
+            self.ColorMap = [CmapClass.selected_text,Cmaplist.selected_text,'_r' if Check_R.checked else '',
+                             Fix_Check.checked,Range_min.double_value,Range_max.double_value]
             Ori_Active_name = deepcopy(self.active_model.name) if hasattr(self,'active_model') else ''
             for name in  list(self.Model_lib):
                 if self.Model_lib[name].type & o3d.io.CONTAINS_POINTS:
@@ -784,6 +875,8 @@ class AppWindow:
         for col in  cmaps_dir[CmapClass.selected_text]:
             Cmaplist.add_item(col)
         Cmaplist.selected_text = self.ColorMap[1]
+        Check_R = gui.Checkbox('R')
+        Check_R.checked = True if self.ColorMap[2] == '_r' else False
 
         dig_done = gui.Button('Done')
         dig_done.vertical_padding_em = 0
@@ -797,25 +890,37 @@ class AppWindow:
         buttonbar.add_child(dig_cancel)
         buttonbar.add_fixed(0.2*self.em)
         buttonbar.add_child(dig_done)
-        
-        vgrid = gui.VGrid(2, 0.1*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
-        vgrid.add_child(gui.Label('Class'))
-        vgrid.add_child(CmapClass)
-        vgrid.add_child(gui.Label('Colormap'))
-        vgrid.add_child(Cmaplist)
 
-        Check_R = gui.Checkbox('Reverse')
-        Reversebar = gui.Horiz(0.25 * self.em)
-        Reversebar.add_stretch()
-        Reversebar.add_child(Check_R)
-        Check_R.checked = True if self.ColorMap[2] == '_r' else False
+        Fix_Check = gui.Checkbox('')
+        Fix_Check.checked = self.ColorMap[3]
+        Range_min = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        Range_min.double_value = self.ColorMap[4]
+        Range_max = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        Range_max.double_value = self.ColorMap[5]
+        Max_h = gui.Horiz(0 * self.em)
+        Max_h.add_child(gui.Label('Min'))
+        Max_h.add_child(Range_min)
+        Min_h = gui.Horiz(0 * self.em)
+        Min_h.add_child(gui.Label('Max'))
+        Min_h.add_child(Range_max)
+        
+        vgrid = gui.VGrid(4, 0.2*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+        vgrid.add_child(gui.Label('Colormap'))
+        vgrid.add_child(CmapClass)
+        vgrid.add_child(Cmaplist)
+        vgrid.add_child(Check_R)
+        vgrid.add_child(gui.Label('Range'))
+        vgrid.add_child(Max_h)
+        vgrid.add_child(Min_h)
+        vgrid.add_child(Fix_Check)
+        
 
         vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
         vert.add_child(gui.Label('Draw Setting'))
         vert.add_fixed(0.2*self.em)
         vert.add_child(vgrid)
-        vert.add_child(Reversebar)
         vert.add_fixed(0.2*self.em)
+        vert.add_fixed(0.5*self.em)
         vert.add_child(buttonbar)
         dlg.add_child(vert)
         self.window.show_dialog(dlg)
@@ -884,7 +989,7 @@ class AppWindow:
         WeightClass.enabled = False if self.ICP_parameter[1] == 'PointToPoint' else True
         k_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
         k_value.double_value = self.ICP_parameter[4]
-        k_value.enabled = False if np.isnan(k_value.double_value) else True
+        k_value.enabled = False if np.isnan(k_value.double_value) or WeightClass.selected_text == 'None' else True
 
         vgrid = gui.VGrid(2, 0.1*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
         vgrid.add_child(gui.Label('ICP Algorithm'))
@@ -920,7 +1025,6 @@ class AppWindow:
             self.State = 'MICP_Target'
             self.Visible_Control(self.State)
             self.window.title = self.State
-            self.window.show_menu(False)
             self.window.set_needs_layout()
             self.Correct_button.set_on_clicked(self.Manual_ICP)
             self.picked_idx = []
@@ -941,13 +1045,9 @@ class AppWindow:
             self.State = 'Main'
             self.window.title = self.State
             self.tabs.selected_index = 0
-            self.window.show_menu(True)
             self.window.set_needs_layout()
             self.Data_pickup = deepcopy(self.picked_idx)
-
-            for i in range(3):
-                self._scene.scene.remove_geometry('MICP_Target'+'_sphere'+str(i))
-                self._scene.scene.remove_geometry('MICP_Data'+'_sphere'+str(i))
+            self.Clean_Mark()
             
             self.ICP_Algorithm()
             del self.picked_idx,self.active_model
@@ -970,13 +1070,13 @@ class AppWindow:
         source.transform(TranMatrix)
 
         self.Selected['Data'].Surface = self.Selected['Target'].Surface
-        self._scene.scene.remove_geometry(self.Selected['Target'].name)
+        #self._scene.scene.remove_geometry(self.Selected['Target'].name)
         self.Update_Cloud(self.Selected['Data'])
         self.Visible_Control(self.State)
 
-        self.Target_list.remove(self.Selected['Target'].name)
-        self.Target_View.set_items(self.Target_list)
-        del self.Model_lib[self.Selected['Target'].name], self.Selected['Target'],
+        #self.Target_list.remove(self.Selected['Target'].name)
+        #self.Target_View.set_items(self.Target_list)
+        #del self.Model_lib[self.Selected['Target'].name], self.Selected['Target'],
         self.SagErr_cal_button.enabled = True
         self.ICP_button.enabled = False
 
@@ -990,7 +1090,6 @@ class AppWindow:
         self.active_model.SagErr = (-1)**self.active_model.z_direction*1000*(xyz[:,2]-zt)
         self.Update_Result()
         self.Update_Cloud(self.active_model)
-        del self.active_model.Surface
         self.SagErr_cal_button.enabled = False
         self.Filter_button.enabled = True
     
@@ -1008,7 +1107,9 @@ class AppWindow:
             self.Avg_value.set_value(np.average(self.active_model.SagErr))
             self.Std_value.set_value(std)
             if calculate:
-                fig_colorbar, mapping = self.SagErr_colorbar(-3*std,3*std,self.ColorMap[1]+self.ColorMap[2])
+                VMin =self.ColorMap[4] if self.ColorMap[3] else -3*std
+                VMax =self.ColorMap[5] if self.ColorMap[3] else 3*std
+                fig_colorbar, mapping = self.SagErr_colorbar(VMin,VMax,self.ColorMap[1]+self.ColorMap[2])
                 fig_histogram = self.SagErr_histogram(self.active_model.SagErr)
                 self.active_model.colorbar = fig_colorbar
                 self.active_model.histogram = fig_histogram
@@ -1071,7 +1172,8 @@ class AppWindow:
         self.active_model.visible = checkstate
 
     def Apply_clicked(self):
-        if self.Filter_button.is_on:
+        self.Clean_Mark()
+        if self.Filter_button.is_on and hasattr(self.active_model,'SagErr'):
             idx = np.argwhere((self.FilterMin_value.double_value<=self.active_model.SagErr)*(self.active_model.SagErr<=self.FilterMax_value.double_value))[:,0]
             if len(idx)<2:
                 print('Filter Error')
@@ -1083,7 +1185,8 @@ class AppWindow:
                 self.active_model.cloud.normalize_normals()
         if self.active_model.z_direction != self.Direction.selected_index:
             self.active_model.z_direction = deepcopy(self.Direction.selected_index)
-            self.active_model.SagErr *= -1
+            if hasattr(self.active_model,'SagErr'):
+                self.active_model.SagErr *= -1
         self.Update_Result()
         self.Update_Cloud(self.active_model)
         self.Apply_button.enabled = False

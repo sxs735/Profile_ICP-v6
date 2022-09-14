@@ -11,6 +11,8 @@ class Object3D:
         if filepath == None and name is not None:
             self.type = o3d.io.CONTAINS_POINTS
             self.name = name
+            self.z_direction = 0
+            self.scale = scale
             self.cloud = o3d.geometry.PointCloud()
         else:
             self.name = ntpath.basename(filepath)
@@ -53,7 +55,7 @@ class Surface_XY:
             if c == 0:
                 pass
             else:
-                Z += c*Y**i*X**j
+                Z += c*Y**i*(-X)**j
             if n==j:
                 n,i,j = n+1,n+1,0
             else:
