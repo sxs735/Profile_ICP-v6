@@ -1,4 +1,5 @@
 from copy import deepcopy
+from attr import has
 import numpy as np
 import pandas as pd
 import open3d as o3d
@@ -79,7 +80,6 @@ class AppWindow:
         self.Target_button_del.enabled = False
 
         self.Target_View = gui.ListView()
-        self.Target_View.set_max_visible_items(6)
         self.Target_View.set_on_selection_changed(self.Target_View_mouse)
 
         self.Change_Tbutton = gui.Button('')
@@ -119,7 +119,6 @@ class AppWindow:
         self.Data_button_del.set_on_clicked(self.Data_Delete)
 
         self.Data_View = gui.ListView()
-        self.Data_View.set_max_visible_items(8)
         self.Data_View.set_on_selection_changed(self.Data_View_mouse)
 
         self.Change_Dbutton = gui.Button('')
@@ -161,7 +160,7 @@ class AppWindow:
         self.Console.add_fixed(2*separation_height)
         self.Console.add_child(data_bar)
         self.Console.add_child(self.Data_View)
-        self.Console.add_fixed(0.5*separation_height)
+        #self.Console.add_fixed(0.5*separation_height)
         self.Console.add_child(SagErr_bar)
         self.Console.add_fixed(2*separation_height)
         self.Console.add_child(self.ICP_button)
@@ -181,20 +180,28 @@ class AppWindow:
         self.Avg_value.enabled = False
         self.Std_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
         self.Std_value.enabled = False
+        self.Surface = gui.Combobox()
+        self.Surface.set_on_selection_changed(self.Apply_enabled)
+        self.Median_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.Median_value.enabled = False
 
-        Value_Grid = gui.VGrid(4, 0.1*self.em,gui.Margins(0*self.em, 0.1*self.em, 0.1*self.em, 0.1*self.em))
+        Value_Grid = gui.VGrid(4, 0.1*self.em,gui.Margins(0.1*self.em, 0.1*self.em, 0.1*self.em, 0.1*self.em))
         Value_Grid.add_child(gui.Label('Z'))
         Value_Grid.add_child(self.Direction)
         Value_Grid.add_child(gui.Label('Scale'))
         Value_Grid.add_child(self.Scale_value)
         Value_Grid.add_child(gui.Label('Max'))
         Value_Grid.add_child(self.Max_value)
-        Value_Grid.add_child(gui.Label(' Min'))
+        Value_Grid.add_child(gui.Label('Min'))
         Value_Grid.add_child(self.Min_value)
         Value_Grid.add_child(gui.Label('Avg'))
         Value_Grid.add_child(self.Avg_value)
-        Value_Grid.add_child(gui.Label(' Std'))
+        Value_Grid.add_child(gui.Label('Std'))
         Value_Grid.add_child(self.Std_value)
+        Value_Grid.add_child(gui.Label('Sur'))
+        Value_Grid.add_child(self.Surface)
+        Value_Grid.add_child(gui.Label('Median'))
+        Value_Grid.add_child(self.Median_value)
 
         self.FilterMax_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
         self.FilterMin_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
@@ -247,7 +254,7 @@ class AppWindow:
         Detail_button_bar.add_fixed(0.5*self.em)
         Detail_button_bar.add_child(self.Save_button)
 
-        self.histogram = gui.ImageWidget(o3d.geometry.Image(np.zeros((10*self.em,16*self.em,3),dtype=np.uint8)))
+        self.histogram = gui.ImageWidget(o3d.geometry.Image(np.zeros((11*self.em,17*self.em,3),dtype=np.uint8)))
         self.Data_name = gui.TextEdit()
         self.Data_name.enabled = False
 
@@ -332,20 +339,21 @@ class AppWindow:
         self.window.set_on_menu_item_activated(12, self.ICP_dialog)
 
         self.Menu.set_enabled(13,False)
+        
 
     def _on_layout(self, layout_context):
         r = self.window.content_rect
         self._scene.frame = r
-        width = 17 * layout_context.theme.font_size
+        width = 18 * layout_context.theme.font_size
         visible_panel = self.Panel[self.tabs.selected_index]
         height = min(r.height,visible_panel.calc_preferred_size(layout_context, gui.Widget.Constraints()).height)
-        self.tabs.frame = gui.Rect(r.get_right() - width, r.y, width,height)
+        self.tabs.frame = gui.Rect(r.get_right() - width, r.y, width, 0.6*height if self.tabs.selected_index == 0 else height)
         
         pref = self.Manual.calc_preferred_size(layout_context, gui.Widget.Constraints())
         self.Manual.frame = gui.Rect(r.get_right()-pref.width, r.get_bottom()-pref.height, pref.width, pref.height)
         pref = self.colorbar.calc_preferred_size(layout_context, gui.Widget.Constraints())
         self.colorbar.frame = gui.Rect(r.get_right()-width-pref.width, r.y, pref.width, pref.height)
-
+        
         self.window.close_dialog()
 
     def csv2xyz_dialog(self):
@@ -400,7 +408,7 @@ class AppWindow:
     def Coeff_Delete(self):
         self.Coeff_name.text_value = ''
         self.Coeff_button_del.enabled = False
-        self.Surface.clear_items()
+        self.SurfClass.clear_items()
         del self.Coeff
 
     def Target_Load_clicked(self):
@@ -563,10 +571,10 @@ class AppWindow:
 
     def Sampling_dialog(self):
         dlg = gui.Dialog('')
-        self.Surface = gui.Combobox()
+        self.SurfClass = gui.Combobox()
         for col in  self.Coeff.sur:
-            self.Surface.add_item(col)
-        self.Surface.selected_index = self.Sampling[0]
+            self.SurfClass.add_item(col)
+        self.SurfClass.selected_index = self.Sampling[0]
         self.Xs = gui.NumberEdit(gui.NumberEdit.DOUBLE)
         self.Ys = gui.NumberEdit(gui.NumberEdit.DOUBLE)
         self.Xs.double_value = self.Sampling[1]
@@ -580,7 +588,7 @@ class AppWindow:
         dig_done.set_on_clicked(self.Sampling_dialog_done)
         vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
         vert.add_child(gui.Label('Choose Surface'))
-        vert.add_child(self.Surface)
+        vert.add_child(self.SurfClass)
         vert.add_fixed(self.em)
         vert.add_child(gui.Label('Sampling rate'))
         vert.add_child(Xh)
@@ -591,7 +599,7 @@ class AppWindow:
         return dlg
     
     def Sampling_dialog_done(self):
-        self.Sampling = [self.Surface.selected_index,self.Xs.double_value,self.Ys.double_value]
+        self.Sampling = [self.SurfClass.selected_index,self.Xs.double_value,self.Ys.double_value]
         self.window.close_dialog()
         S = self.Coeff.sur[self.Sampling[0]]
         try:
@@ -1096,6 +1104,13 @@ class AppWindow:
     def Update_Result(self, calculate = True):
         self.Direction.selected_index = self.active_model.z_direction
         self.Scale_value.set_value(self.active_model.scale)
+        self.Surface.clear_items()
+        self.Surface.add_item('None')
+        if hasattr(self,'Coeff'):
+            for col in  self.Coeff.sur:
+                self.Surface.add_item(col)
+        if hasattr(self.active_model,'Surface') and hasattr(self,'Coeff') and self.active_model.Surface in self.Coeff.sur:
+            self.Surface.selected_text = self.active_model.Surface
         if hasattr(self.active_model,'SagErr'):
             std = np.std(self.active_model.SagErr)
             vmax = self.active_model.SagErr.max()
@@ -1106,6 +1121,7 @@ class AppWindow:
             self.FilterMin_value.set_value(vmin)
             self.Avg_value.set_value(np.average(self.active_model.SagErr))
             self.Std_value.set_value(std)
+            self.Median_value.set_value(np.percentile(self.active_model.SagErr,50))
             if calculate:
                 VMin =self.ColorMap[4] if self.ColorMap[3] else -3*std
                 VMax =self.ColorMap[5] if self.ColorMap[3] else 3*std
@@ -1123,7 +1139,8 @@ class AppWindow:
             self.FilterMin_value.set_value(np.nan)
             self.Avg_value.set_value(np.nan)
             self.Std_value.set_value(np.nan)
-            self.histogram.update_image(o3d.geometry.Image(np.zeros((10*self.em,16*self.em,3),dtype=np.uint8)))
+            self.Median_value.set_value(np.nan)
+            self.histogram.update_image(o3d.geometry.Image(np.zeros((11*self.em,17*self.em,3),dtype=np.uint8)))
 
     def SagErr_colorbar(self,vmin,vmax,cmap):
         fig, ax = plt.subplots(figsize = (4,0.8))
@@ -1142,7 +1159,7 @@ class AppWindow:
         return fig,mapping
 
     def SagErr_histogram(self,SagErr):
-        fig, ax = plt.subplots(figsize = (2.7,2))
+        fig, ax = plt.subplots(figsize = (2.78,1.74))
         fig.subplots_adjust(left=0.01, bottom=0.25, right = 0.99, top = 0.98)
         Yhis,Xhis = np.histogram(SagErr, 25)
         ax.bar(Xhis[:-1],Yhis,width=Xhis[1]-Xhis[0],color='w',edgecolor = 'k')
@@ -1164,6 +1181,13 @@ class AppWindow:
             self.FilterMin_value.set_value(self.Min_value.double_value)
         elif self.Direction.selected_index != self.active_model.z_direction or self.Filter_button.is_on:
             self.Apply_button.enabled = True
+        elif hasattr(self,'Coeff'):
+            if hasattr(self.active_model,'Surface') and self.Surface.selected_text != self.active_model.Surface:
+                self.Apply_button.enabled = True
+            elif not hasattr(self.active_model,'Surface') and self.Surface.selected_text != 'None':
+                self.Apply_button.enabled = True
+            else:
+                self.Apply_button.enabled = False
         else:
             self.Apply_button.enabled = False
 
@@ -1187,13 +1211,25 @@ class AppWindow:
             self.active_model.z_direction = deepcopy(self.Direction.selected_index)
             if hasattr(self.active_model,'SagErr'):
                 self.active_model.SagErr *= -1
+        if self.Surface.selected_text != 'None':
+            self.active_model.Surface = self.Surface.selected_text
+        else:
+            del self.active_model.Surface
         self.Update_Result()
         self.Update_Cloud(self.active_model)
         self.Apply_button.enabled = False
         self.Filter_button.is_on = False
+        self.SagErr_cal_button.enabled = True if hasattr(self.active_model,'Surface') else True
 
     def Save_clicked(self):
-        pass
+        def save_done(filepath):
+            o3d.io.write_point_cloud(filepath, self.active_model.cloud, write_ascii=False, compressed=False, print_progress=False)
+            self.window.close_dialog()
+        dlg = gui.FileDialog(gui.FileDialog.SAVE, 'Choose file to load', self.window.theme)
+        dlg.add_filter('.xyz .xyzn .xyzrgb .ply .pcd .pts','Point cloud files (.xyz, .xyzn, .xyzrgb, .ply, .pcd, .pts)')
+        dlg.set_on_cancel(self.window.close_dialog)
+        dlg.set_on_done(save_done)
+        self.window.show_dialog(dlg)
 
             
 
