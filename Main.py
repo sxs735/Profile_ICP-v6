@@ -19,7 +19,8 @@ Weight_Function = {'None': None,
                    'L2Loss': o3d.pipelines.registration.L2Loss()}
 ICP_Class = {'PointToPoint' : o3d.pipelines.registration.TransformationEstimationPointToPoint(),
              'PointToPlane' : o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-             'Generalized' : o3d.pipelines.registration.TransformationEstimationForGeneralizedICP()}
+             'Generalized' : o3d.pipelines.registration.TransformationEstimationForGeneralizedICP(),
+             'PointToPoint_scaling': o3d.pipelines.registration.TransformationEstimationPointToPoint(True)}
 
 cmaps_dir = {'Uniform Sequential':['viridis', 'plasma', 'inferno', 'magma', 'cividis'],
              'Sequential': ['Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds','YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu','GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn'],
@@ -47,7 +48,7 @@ class AppWindow:
     material_cloud.point_size = 12
     material_cloud.shader = 'defaultUnlit'
     material_wire = rendering.MaterialRecord()
-    material_wire.base_color = [0, 0, 0, 0]
+    material_wire.base_color = [0, 0, 0, 1]
     material_wire.shader = 'unlitLine'
     material_wire.line_width = 2
     material_mesh = rendering.MaterialRecord()
@@ -329,16 +330,23 @@ class AppWindow:
         self.Option_menu.add_separator()
         self.Option_menu.add_item('Master_visible',13)
         self.Option_menu.set_checked(13, False)
-        self.window.set_on_menu_item_activated(13, self.Master_visible)
+        self.Tools_menu = gui.Menu()
+        self.Tools_menu.add_item("Formula cal.", 21)
+        self.Tools_menu.add_item("Surface fitting.", 22)
         self.Menu.add_menu("File", file_menu)
         self.Menu.add_menu("Option", self.Option_menu)
+        self.Menu.add_menu("Tools", self.Tools_menu)
         gui.Application.instance.menubar = self.Menu
         self.window.set_on_menu_item_activated(1, self.csv2xyz_dialog)
-        #self.window.set_on_menu_item_activated(2, self.Export_image)
         self.window.set_on_menu_item_activated(11, self.Draw_dialog)
         self.window.set_on_menu_item_activated(12, self.ICP_dialog)
+        self.window.set_on_menu_item_activated(13, self.Master_visible)
+        self.window.set_on_menu_item_activated(21, self.Formula_dialog)
+        self.window.set_on_menu_item_activated(22, self.Fitting_dialog)
 
         self.Menu.set_enabled(13,False)
+        self.Menu.set_enabled(21,False)
+        self.Menu.set_enabled(22,False)
         
 
     def _on_layout(self, layout_context):
@@ -370,27 +378,147 @@ class AppWindow:
         dlg.set_on_done(csv2xyz)
         self.window.show_dialog(dlg)
 
-    # def Export_image(self):
-    #     def Export_image(path, width, height):
-    #         def on_image(image):
-    #             img = image
-    #             quality = 9  # png
-    #             if path.endswith(".jpg"):
-    #                 quality = 100
-    #             o3d.io.write_image(path, img, quality)
-    #         self._scene.scene.scene.render_to_image(on_image)
+    def Formula_dialog(self):
+        def Global_button():
+            S = self.SurfClass.selected_text
+            xg,yg,zg = self.xg_value.double_value, self.yg_value.double_value,self.zg_value.double_value
+            x,y,zl,_ = self.Coeff.Formula_calculator(S,xg,yg,zg)
+            self.xl_value.set_value(x)
+            self.yl_value.set_value(y)
+            self.zl_value.set_value(zl)
+        def Local_button():
+            S = self.SurfClass.selected_text
+            xl,yl = self.xl_value.double_value, self.yl_value.double_value
+            x,y,zl,zg = self.Coeff.Formula_calculator(S,xl,yl)
+            self.xg_value.set_value(x)
+            self.yg_value.set_value(y)
+            self.zl_value.set_value(zl)
+            self.zg_value.set_value(zg)
 
-    #     def Export_dialog_done(filename):
-    #         self.window.close_dialog()
-    #         frame = self._scene.frame
-    #         Export_image(filename, frame.width, frame.height)
+        dlg = gui.Dialog('')
+        self.SurfClass = gui.Combobox()
+        for col in  self.Coeff.sur:
+            self.SurfClass.add_item(col)
+        dig_cal_g = gui.Button('G to L')
+        dig_cal_g.vertical_padding_em = 0
+        dig_cal_g.set_on_clicked(Global_button)
+        self.xg_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.yg_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.zg_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.xl_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.yl_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.zl_value = gui.NumberEdit(gui.NumberEdit.DOUBLE)
+        self.zl_value.enabled = False
+        self.xg_value.decimal_precision = 5
+        self.yg_value.decimal_precision = 5
+        self.zg_value.decimal_precision = 5
+        self.xl_value.decimal_precision = 5
+        self.yl_value.decimal_precision = 5
+        self.zl_value.decimal_precision = 5
+        dig_cal_l = gui.Button('L to G')
+        dig_cal_l.vertical_padding_em = 0
+        dig_cal_l.set_on_clicked(Local_button)
+        dig_close = gui.Button('X')
+        dig_close.horizontal_padding_em = 0.5
+        dig_close.vertical_padding_em = 0
+        dig_close.set_on_clicked(self.window.close_dialog)
+        Close = gui.Horiz(0.25 * self.em)
+        Close.add_child(gui.Label('Formula Calculator'))
+        Close.add_stretch()
+        Close.add_child(self.SurfClass)
+        Close.add_fixed(0.25 * self.em)
+        Close.add_child(dig_close)
+        vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        vgrid = gui.VGrid(4, 0.2*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+        vgrid.add_child(gui.Label('Cal.'))
+        vgrid.add_child(gui.Label('x'))
+        vgrid.add_child(gui.Label('y'))
+        vgrid.add_child(gui.Label('z'))
+        vgrid.add_child(dig_cal_g)
+        vgrid.add_child(self.xg_value)
+        vgrid.add_child(self.yg_value)
+        vgrid.add_child(self.zg_value)
+        vgrid.add_child(dig_cal_l)
+        vgrid.add_child(self.xl_value)
+        vgrid.add_child(self.yl_value)
+        vgrid.add_child(self.zl_value)
+        vert.add_child(Close)
+        vert.add_child(vgrid)
+        dlg.add_child(vert)
+        self.window.show_dialog(dlg)
 
-    #     dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save",self.window.theme)
-    #     dlg.add_filter(".png", "PNG files (.png)")
-    #     dlg.set_on_cancel(self.window.close_dialog)
-    #     dlg.set_on_done(Export_dialog_done)
-    #     self.window.show_dialog(dlg)
+    def Fitting_dialog(self):
+        def limit_value(new_value):
+            if new_value> 10:
+                self.order.set_value(10)
+            elif new_value < 1:
+                self.order.set_value(1)
+        
+        def DataType_change(text, index):
+            if index == 1:
+                self.Zero_k.checked = True
+                self.Zero_k.enabled = False
+            else:
+                self.Zero_k.enabled = True
 
+        def Fit_process():
+            Ftype = str(int(self.Zero_k.checked))+str(int(self.Zero_C.checked))+'_'+['Asymmetry','Xsymmetry','Ysymmetry'][self.Function_Type.selected_index]
+            datatype = '0' if self.DataType.selected_index == 0 else '1'
+            df = self.Coeff.Fit_surface(self.active_model,self.order.int_value,datatype+Ftype)
+            df.to_excel(df.columns[0][:-4]+'.xlsx',sheet_name = 'Active parameters')
+            self.window.close_dialog()
+            
+        dlg = gui.Dialog('')
+        self.DataType = gui.Combobox()
+        self.DataType.add_item('Pointcloud')
+        self.DataType.set_on_selection_changed(DataType_change)
+        if hasattr(self.active_model,'SagErr'):
+            self.DataType.add_item('SagErr')
+        
+        dig_close = gui.Button('X')
+        dig_close.horizontal_padding_em = 0.5
+        dig_close.vertical_padding_em = 0
+        dig_close.set_on_clicked(self.window.close_dialog)
+        Title_bar = gui.Horiz(0.25 * self.em)
+        Title_bar.add_child(gui.Label('Surface Fitting'))
+        Title_bar.add_stretch()
+        Title_bar.add_fixed(0.25 * self.em)
+        Title_bar.add_child(dig_close)
+        self.Function_Type = gui.Combobox()
+        for item in ['Asymmetry','X_symmetry','Y_symmetry']:
+            self.Function_Type.add_item(item)
+        self.order = gui.NumberEdit(gui.NumberEdit.INT)
+        self.order.set_value(1)
+        self.order.set_on_value_changed(limit_value)
+        Coeff_bar = gui.Horiz(0.25 * self.em, gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+        self.Zero_k = gui.Checkbox('k = 0')
+        self.Zero_C = gui.Checkbox('C = 0')
+        self.Zero_k.checked = True
+        self.Zero_C.checked = True
+        Coeff_bar.add_child(self.Zero_k)
+        Coeff_bar.add_child(self.Zero_C)
+        vgrid = gui.VGrid(2, 0.2*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+        vgrid.add_child(gui.Label('Data type'))
+        vgrid.add_child(self.DataType)
+        vgrid.add_child(gui.Label('Symmetry'))
+        vgrid.add_child(self.Function_Type)
+        vgrid.add_child(gui.Label('XY-poly. order'))
+        vgrid.add_child(self.order)
+        Fit_run = gui.Button('Fit')
+        Fit_run.horizontal_padding_em = 0.5
+        Fit_run.vertical_padding_em = 0
+        Fit_run.set_on_clicked(Fit_process)
+        Fit_bar = gui.Horiz(0.25 * self.em)
+        Fit_bar.add_stretch()
+        Fit_bar.add_child(Fit_run)
+        vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+        vert.add_child(Title_bar)
+        vert.add_child(vgrid)
+        vert.add_child(Coeff_bar)
+        vert.add_fixed(0.25 * self.em)
+        vert.add_child(Fit_bar)
+        dlg.add_child(vert)
+        self.window.show_dialog(dlg)
 
     def Coeff_Load_dialog(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
@@ -402,12 +530,14 @@ class AppWindow:
     def Coeff_load_done(self,filepath):
         self.Coeff = Model.Surface_XY(filepath)
         self.Coeff_name.text_value = self.Coeff.name
+        self.Menu.set_enabled(21,True)
         self.Sampling = [0, 0.5, 0.5]
         self.window.close_dialog()
 
     def Coeff_Delete(self):
         self.Coeff_name.text_value = ''
         self.Coeff_button_del.enabled = False
+        self.Menu.set_enabled(21,False)
         self.SurfClass.clear_items()
         del self.Coeff
 
@@ -541,6 +671,7 @@ class AppWindow:
         self.window.set_needs_layout()
         self.Apply_button.enabled = False
         self.Filter_button.is_on = False
+        self.Menu.set_enabled(22,False)
         if hasattr(self,'colorbar'):
             self.colorbar.visible = False
 
@@ -565,6 +696,8 @@ class AppWindow:
             self.tabs.selected_index = 1
             self.window.set_needs_layout()
             self.colorbar.visible = True if hasattr(self.active_model,'SagErr') else False
+            if hasattr(self.active_model,'Surface'): 
+                self.Menu.set_enabled(22,True)
             self.picked_idx = []
             self.label_list = []
             self.Update_Result(False)
@@ -739,14 +872,19 @@ class AppWindow:
                         sphere = o3d.geometry.TriangleMesh.create_sphere(0.15).translate(true_point)
                         sphere.paint_uniform_color(ColorConverter.to_rgb(color[i]))
                         self._scene.scene.add_geometry(self.State+'_sphere'+str(i),sphere,self.material_cloud)
-            elif self.tabs.selected_index == 1 and hasattr(self.active_model,'SagErr'):
+            elif self.tabs.selected_index == 1:
                 self.Clean_Mark()
                 for i,idx in enumerate(self.picked_idx):
                     true_point = np.asarray(self.active_model.cloud.points)[idx]
-                    dz = self.active_model.SagErr[idx]
-                    label3d = self._scene.add_3d_label(true_point, '%.3f'%dz)
                     sphere = o3d.geometry.TriangleMesh.create_sphere(0.25).translate(true_point)
-                    sphere.paint_uniform_color(ColorConverter.to_rgb('k'))
+                    if hasattr(self.active_model,'SagErr'):
+                        dz = self.active_model.SagErr[idx]
+                        label3d = self._scene.add_3d_label(true_point, '%.3f'%dz)
+                        sphere.paint_uniform_color(ColorConverter.to_rgb('k'))
+                    else:
+                        label3d = self._scene.add_3d_label(true_point, '%.6f,%.6f,%.6f'%(true_point[0],true_point[1],true_point[2]))
+                        label3d.color = gui.Color(1, 0, 0)
+                        sphere.paint_uniform_color(ColorConverter.to_rgb('r'))
                     self._scene.scene.add_geometry('label_sphere'+str(i),sphere,self.material_cloud)
                     self.label_list.append(label3d)
 
@@ -773,7 +911,7 @@ class AppWindow:
         y = event.y- self._scene.frame.y
 
         if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_button_down(gui.MouseButton.LEFT) and event.is_modifier_down(gui.KeyModifier.CTRL)\
-            and (self.tabs.selected_index == 2 or (self.tabs.selected_index == 1 and hasattr(self.active_model,'SagErr'))):
+            and (self.tabs.selected_index == 2 or self.tabs.selected_index == 1):
             self._scene.set_view_controls(gui.SceneWidget.Controls.PICK_POINTS)
             self.MouseSelect = [[x,y]]
             self._scene.scene.scene.render_to_depth_image(depth_callback)
@@ -1075,7 +1213,11 @@ class AppWindow:
         criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration = 3000)
         reg = o3d.pipelines.registration.registration_icp(source, target, max_correspondence_distance, trans_init, ICP_Algorithm, criteria)
         TranMatrix = reg.transformation
+        print(TranMatrix)
         source.transform(TranMatrix)
+        scale = np.linalg.det(TranMatrix[:3,:3]) 
+        if scale != 1:
+            self.Selected['Data'].scale *= scale
 
         self.Selected['Data'].Surface = self.Selected['Target'].Surface
         #self._scene.scene.remove_geometry(self.Selected['Target'].name)
@@ -1220,6 +1362,10 @@ class AppWindow:
         self.Apply_button.enabled = False
         self.Filter_button.is_on = False
         self.SagErr_cal_button.enabled = True if hasattr(self.active_model,'Surface') else True
+        if hasattr(self.active_model,'Surface'): 
+            self.Menu.set_enabled(22,True)
+        else:
+            self.Menu.set_enabled(22,False)
 
     def Save_clicked(self):
         def save_done(filepath):

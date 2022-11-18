@@ -1,6 +1,7 @@
 from copy import deepcopy
 import numpy as np
 import pandas as pd
+from scipy.optimize import curve_fit
 import open3d as o3d
 import ntpath
 from alphashape import alphashape
@@ -34,7 +35,8 @@ class Object3D:
                 self.cloud.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
                 self.cloud.estimate_covariances(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
                 self.cloud.normalize_normals()
-                self.cloud.paint_uniform_color([0,0,1])
+                if not self.cloud.has_colors():
+                    self.cloud.paint_uniform_color([0,0,1])
                 print('[Info] Successfully read', filepath)
             else:
                 print('[WARNING] Failed to read file:', filepath)
@@ -47,7 +49,6 @@ class Surface_XY:
 
     def Sag_Z(self,X,Y,S):
         C = self.Dataframe[S].values
-        #X *= -1
         R2 = X**2 + Y**2
         Z = C[6]*(R2)/(1+np.sqrt(1-(1+C[7])*C[6]**2*(R2)))+C[8]
         n,i,j = 1,1,0
@@ -55,7 +56,29 @@ class Surface_XY:
             if c == 0:
                 pass
             else:
-                Z += c*Y**i*(-X)**j
+                Z += c*Y**i*X**j
+            if n==j:
+                n,i,j = n+1,n+1,0
+            else:
+                i,j = i-1, j+1
+        return Z
+
+    def Fit_eq(self,XY,*C,type = '011_Asymmetry'):
+        X,Y = XY
+        R2 = X**2 + Y**2
+        if type[0] == '1':
+            cv,k = 0,0
+        else:
+            cv = C[0]
+            k = 0 if type[1] == '1' else C[1]
+        c0 = 0 if type[2] == '1' else C[2]
+        Z = cv*(R2)/(1+np.sqrt(1-(1+k)*cv**2*(R2)))+c0
+        n,i,j = 1,1,0
+        for c in C[3:]:        
+            if c == 0 or (type[4:] == 'Xsymmetry' and j%2 != 0) or (type[4:] == 'Ysymmetry' and i%2 != 0):
+                pass
+            else:
+                Z += c*Y**i*X**j
             if n==j:
                 n,i,j = n+1,n+1,0
             else:
@@ -76,7 +99,7 @@ class Surface_XY:
         pcd.transform(np.linalg.inv(self.Matrix44(S)))
         xyz = np.asarray(pcd.points)
         zt = self.Sag_Z(*xyz[:,:2].T,S)
-        index = np.where(np.abs(zt-xyz[:,2])<0.001)[0]
+        index = np.where(np.abs(zt-xyz[:,2])<0.002)[0]
         if len(index)>0:
             edge = np.asarray(alphashape(xyz[index,:2],0.2).exterior.coords)
             idx = [np.argmin(np.sum(np.square(xyz[:,:2]-i),axis = 1)) for i in edge]
@@ -94,13 +117,14 @@ class Surface_XY:
         Edge,inside_idx = self.Surface_edge(pcd,Surface)
         pcd = pcd.select_by_index(inside_idx)
         bounding_box = pcd.get_axis_aligned_bounding_box()
-        xmin,ymin,_ = bounding_box.get_min_bound()
-        xmax,ymax,_ = bounding_box.get_max_bound()
-        x,y = np.arange(xmin,xmax+Xs,Xs),np.arange(ymin,ymax+Ys,Ys)
-        x,y = np.meshgrid(x, y)
-        x,y = x.reshape((-1)),y.reshape((-1))
-        z = self.Sag_Z(x,y,Surface)
-        pcd.points = o3d.utility.Vector3dVector(np.vstack((x,y,z)).T)
+        if Xs != 0 or Ys != 0:
+            xmin,ymin,_ = bounding_box.get_min_bound()
+            xmax,ymax,_ = bounding_box.get_max_bound()
+            x,y = np.arange(xmin,xmax+Xs,Xs),np.arange(ymin,ymax+Ys,Ys)
+            x,y = np.meshgrid(x, y)
+            x,y = x.reshape((-1)),y.reshape((-1))
+            z = self.Sag_Z(x,y,Surface)
+            pcd.points = o3d.utility.Vector3dVector(np.vstack((x,y,z)).T)
         pcd = Edge.crop_point_cloud(pcd)
         pcd.transform(self.Matrix44(Surface))
         pcd.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
@@ -112,4 +136,39 @@ class Surface_XY:
         Sampling_pcd.cloud = pcd
         Sampling_pcd.Surface = Surface
         return Sampling_pcd
+
+    def Formula_calculator(self,S,x,y,z = None):
+        if z != None:
+            pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector([[x,y,z]]))
+            pcd.transform(np.linalg.inv(self.Matrix44(S)))
+            xyz = np.asarray(pcd.points)[0]
+            return xyz[0],xyz[1],xyz[2], None
+        else:
+            zt = self.Sag_Z(x,y,S)
+            pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector([[x,y,zt]]))
+            pcd.transform(self.Matrix44(S))
+            xyz = np.asarray(pcd.points)[0]
+            return xyz[0],xyz[1],zt,xyz[2]
+
+    def Fit_surface(self,object3D,order,dFtype = '011_Asymmetry'):
+        S = object3D.Surface
+        pcd = deepcopy(object3D.cloud)
+        pcd.transform(np.linalg.inv(self.Matrix44(S)))
+        xyz = np.asarray(pcd.points)
+        if dFtype[0] == '1':
+            xyz[:,2] = object3D.SagErr/1000
+        p0 = np.zeros(int((order+2)*(order+1)/2+2))
+        p1, _ = curve_fit(lambda XY, *C: self.Fit_eq(XY,*C,type = dFtype), xyz[:,:2].T, xyz[:,2], p0, maxfev=10000, ftol=1E-15, xtol=1E-10)
         
+        item = ['Aphla','Beta','Gamma','x0','y0','z0','CV','CC','Constant']
+        n,i,j = 1,1,0
+        for _ in range(int((order+2)*(order+1)/2+2)-3):
+            item += ['Y%sX%s'%(i,j)]        
+            if n==j:
+                n,i,j = n+1,n+1,0
+            else:
+                i,j = i-1, j+1
+
+        values = np.hstack((self.Dataframe[S].values[:6],p1))
+        df = pd.DataFrame(data=values, index=item, columns=[object3D.name[:4]])
+        return df
