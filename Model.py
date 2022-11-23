@@ -86,8 +86,11 @@ class Surface_XY:
         return Z
 
     def Matrix44(self,S):
-        C = self.Dataframe[S].values
-        alpha,beta,gamma,x0,y0,z0 = C[:6]
+        if type(S) != str:
+            alpha,beta,gamma,x0,y0,z0 = S
+        else:
+            C = self.Dataframe[S].values
+            alpha,beta,gamma,x0,y0,z0 = C[:6]
         alpha,beta,gamma = alpha*dr,beta*dr,gamma*dr
         Shift = np.array([[1,0,0,x0],[0,1,0,y0],[0,0,1,z0],[0,0,0,1]])
         Rx = np.array([[1,0,0,0],[0,np.cos(alpha),np.sin(alpha),0],[0,-np.sin(alpha),np.cos(alpha),0],[0,0,0,1]])
@@ -117,7 +120,7 @@ class Surface_XY:
         Edge,inside_idx = self.Surface_edge(pcd,Surface)
         pcd = pcd.select_by_index(inside_idx)
         bounding_box = pcd.get_axis_aligned_bounding_box()
-        if Xs != 0 or Ys != 0:
+        if Xs != 0 and Ys != 0:
             xmin,ymin,_ = bounding_box.get_min_bound()
             xmax,ymax,_ = bounding_box.get_max_bound()
             x,y = np.arange(xmin,xmax+Xs,Xs),np.arange(ymin,ymax+Ys,Ys)
@@ -137,6 +140,26 @@ class Surface_XY:
         Sampling_pcd.Surface = Surface
         return Sampling_pcd
 
+    def Equation_Surface(self,Surface,region,axis):
+        Xmin,Xmax,Xpitch,Ymin,Ymax,Ypitch = region
+        pcd = o3d.geometry.PointCloud()
+        x,y = np.arange(Xmin,Xmax+Xpitch,Xpitch),np.arange(Ymin,Ymax+Ypitch,Ypitch)
+        x,y = np.meshgrid(x, y)
+        x,y = x.reshape((-1)),y.reshape((-1))
+        z = self.Sag_Z(x,y,Surface)
+        pcd.points = o3d.utility.Vector3dVector(np.vstack((x,y,z)).T)
+        pcd.transform(self.Matrix44(axis))
+        pcd.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
+        pcd.estimate_covariances(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = 1, max_nn = 25))
+        pcd.normalize_normals()
+        pcd.paint_uniform_color([0,0,1])
+        print(self.name)
+        name = self.name[:-5]+'_'+Surface+'.xyz'
+        Equation_pcd = Object3D(name = name)
+        Equation_pcd.cloud = pcd
+        Equation_pcd.Surface = Surface
+        return Equation_pcd
+
     def Formula_calculator(self,S,x,y,z = None):
         if z != None:
             pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector([[x,y,z]]))
@@ -151,15 +174,15 @@ class Surface_XY:
             return xyz[0],xyz[1],zt,xyz[2]
 
     def Fit_surface(self,object3D,order,dFtype = '011_Asymmetry'):
-        S = object3D.Surface
         pcd = deepcopy(object3D.cloud)
+        S = object3D.Surface
         pcd.transform(np.linalg.inv(self.Matrix44(S)))
         xyz = np.asarray(pcd.points)
         if dFtype[0] == '1':
             xyz[:,2] = object3D.SagErr/1000
         p0 = np.zeros(int((order+2)*(order+1)/2+2))
         p1, _ = curve_fit(lambda XY, *C: self.Fit_eq(XY,*C,type = dFtype), xyz[:,:2].T, xyz[:,2], p0, maxfev=10000, ftol=1E-15, xtol=1E-10)
-        
+
         item = ['Aphla','Beta','Gamma','x0','y0','z0','CV','CC','Constant']
         n,i,j = 1,1,0
         for _ in range(int((order+2)*(order+1)/2+2)-3):
@@ -168,7 +191,6 @@ class Surface_XY:
                 n,i,j = n+1,n+1,0
             else:
                 i,j = i-1, j+1
-
         values = np.hstack((self.Dataframe[S].values[:6],p1))
         df = pd.DataFrame(data=values, index=item, columns=[object3D.name[:4]])
         return df

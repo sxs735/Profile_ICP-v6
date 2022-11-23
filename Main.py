@@ -323,7 +323,7 @@ class AppWindow:
         self.Menu = gui.Menu()
         file_menu = gui.Menu()
         file_menu.add_item("csv2xyz", 1)
-        #file_menu.add_item("Export Current Image...",2)
+        file_menu.add_item("PointCloud From Equation",2)
         self.Option_menu = gui.Menu()
         self.Option_menu.add_item('Drawing settings',11)
         self.Option_menu.add_item('ICP settings',12)
@@ -338,6 +338,7 @@ class AppWindow:
         self.Menu.add_menu("Tools", self.Tools_menu)
         gui.Application.instance.menubar = self.Menu
         self.window.set_on_menu_item_activated(1, self.csv2xyz_dialog)
+        self.window.set_on_menu_item_activated(2, self.Eq2Pcd_dialog)
         self.window.set_on_menu_item_activated(11, self.Draw_dialog)
         self.window.set_on_menu_item_activated(12, self.ICP_dialog)
         self.window.set_on_menu_item_activated(13, self.Master_visible)
@@ -464,9 +465,12 @@ class AppWindow:
         def Fit_process():
             Ftype = str(int(self.Zero_k.checked))+str(int(self.Zero_C.checked))+'_'+['Asymmetry','Xsymmetry','Ysymmetry'][self.Function_Type.selected_index]
             datatype = '0' if self.DataType.selected_index == 0 else '1'
-            df = self.Coeff.Fit_surface(self.active_model,self.order.int_value,datatype+Ftype)
-            df.to_excel(df.columns[0][:-4]+'.xlsx',sheet_name = 'Active parameters')
-            self.window.close_dialog()
+            try:
+                df = self.Coeff.Fit_surface(self.active_model,self.order.int_value,datatype+Ftype)
+                df.to_excel('Fitting'+'.xlsx',sheet_name = 'Active parameters')
+                self.window.close_dialog()
+            except Exception:
+                print('Fitting Failed')
             
         dlg = gui.Dialog('')
         self.DataType = gui.Combobox()
@@ -519,6 +523,128 @@ class AppWindow:
         vert.add_child(Fit_bar)
         dlg.add_child(vert)
         self.window.show_dialog(dlg)
+
+    def Eq2Pcd_dialog(self):
+        def Eq_Load(filepath):
+            self.Equatuon = Model.Surface_XY(filepath)
+            Eq_setting_dialog()
+            
+        def Eq_dialog_cancel():
+            self.window.close_dialog()
+            if hasattr(self,'Equation'):
+                del self.Equatuon
+
+        def Eq_Load_dialog():
+            Filedlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
+            Filedlg.add_filter('.xlsx','Surface parameters files (.xlsx)')
+            Filedlg.set_on_cancel(Eq_setting_dialog)
+            Filedlg.set_on_done(Eq_Load)
+            self.window.show_dialog(Filedlg)
+
+        def Eq_setting_dialog():
+            def Update_value(Column_name, index):
+                if hasattr(self,'Equatuon'):
+                    coeff = self.Equatuon.Dataframe[Column_name].values
+                    Alpha_value.set_value(coeff[0])
+                    Beta_value.set_value(coeff[1])
+                    Gamma_value.set_value(coeff[2])
+                    X0_value.set_value(coeff[3])
+                    Y0_value.set_value(coeff[4])
+                    Z0_value.set_value(coeff[5])
+                else:
+                    pass
+
+            def Eq_dialog_done():
+                Surface = Column.selected_text
+                axis = [Alpha_value.double_value,Beta_value.double_value,Gamma_value.double_value,
+                        X0_value.double_value,Y0_value.double_value,Z0_value.double_value]
+                region = [Xmin_value.double_value,Xmax_value.double_value,Xpitch_value.double_value,
+                          Ymin_value.double_value,Ymax_value.double_value,Ypitch_value.double_value]
+                Obj = self.Equatuon.Equation_Surface(Surface,region,axis)
+                self.Model_lib[Obj.name] = Obj
+                self.Model_lib[Obj.name].visible = True
+                if Obj.name not in self.Data_list:
+                    self.Data_list.append(Obj.name)
+                    self.Data_View.set_items(self.Data_list)
+                self._scene.scene.add_geometry(Obj.name, Obj.cloud, self.material_cloud)
+                self.window.close_dialog()
+
+            dlg = gui.Dialog('')
+            Eq_name = gui.TextEdit()
+            Eq_name.enabled = False
+            Eq_button_load = gui.Button('Load')
+            Eq_button_load.horizontal_padding_em = 0
+            Eq_button_load.vertical_padding_em = 0
+            Eq_button_load.set_on_clicked(Eq_Load_dialog)
+            Eq_bar = gui.Horiz(0.25 * self.em)
+            Eq_bar.add_child(Eq_name)
+            Eq_bar.add_child(Eq_button_load)
+            Column = gui.Combobox()
+            Column.set_on_selection_changed(Update_value)
+            Direct_vgrid = gui.VGrid(2, 0.2*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+            Direct_vgrid.add_child(gui.Label('Alpha')); Alpha_value = gui.NumberEdit(gui.NumberEdit.DOUBLE); Direct_vgrid.add_child(Alpha_value)
+            Direct_vgrid.add_child(gui.Label('Beta')); Beta_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);   Direct_vgrid.add_child(Beta_value)
+            Direct_vgrid.add_child(gui.Label('Gamma')); Gamma_value = gui.NumberEdit(gui.NumberEdit.DOUBLE); Direct_vgrid.add_child(Gamma_value)
+            Alpha_value.decimal_precision = 5; Beta_value.decimal_precision = 5; Gamma_value.decimal_precision = 5
+            Origin_vgrid = gui.VGrid(2, 0.2*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+            Origin_vgrid.add_child(gui.Label('X0')); X0_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);  Origin_vgrid.add_child(X0_value)
+            Origin_vgrid.add_child(gui.Label('Y0')); Y0_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);  Origin_vgrid.add_child(Y0_value)
+            Origin_vgrid.add_child(gui.Label('Z0')); Z0_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);  Origin_vgrid.add_child(Z0_value)
+            X0_value.decimal_precision = 5; Y0_value.decimal_precision = 5; Z0_value.decimal_precision = 5
+            Axis_bar = gui.Horiz(0.25 * self.em)
+            Axis_bar.add_child(Direct_vgrid)
+            Axis_bar.add_child(Origin_vgrid)
+            X_vgrid = gui.VGrid(2, 0.2*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+            X_vgrid.add_child(gui.Label('Min')); Xmin_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);    X_vgrid.add_child(Xmin_value)
+            X_vgrid.add_child(gui.Label('Max')); Xmax_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);    X_vgrid.add_child(Xmax_value)
+            X_vgrid.add_child(gui.Label('Pitch')); Xpitch_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);X_vgrid.add_child(Xpitch_value)
+            Xmin_value.decimal_precision = 5; Xmax_value.decimal_precision = 5; Xpitch_value.decimal_precision = 5
+            Y_vgrid = gui.VGrid(2, 0.2*self.em,gui.Margins(0.5*self.em, 0.2*self.em, 0.2*self.em, 0))
+            Y_vgrid.add_child(gui.Label('Min')); Ymin_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);    Y_vgrid.add_child(Ymin_value)
+            Y_vgrid.add_child(gui.Label('Max')); Ymax_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);    Y_vgrid.add_child(Ymax_value)
+            Y_vgrid.add_child(gui.Label('Pitch')); Ypitch_value = gui.NumberEdit(gui.NumberEdit.DOUBLE);Y_vgrid.add_child(Ypitch_value)
+            Ymin_value.decimal_precision = 5; Ymax_value.decimal_precision = 5; Ypitch_value.decimal_precision = 5
+            Domain_bar = gui.Horiz(0.25 * self.em)
+            Domain_bar.add_child(X_vgrid)
+            Domain_bar.add_child(Y_vgrid)
+            Button_bar = gui.Horiz(0.25 * self.em)
+            Eq_button_Cancel = gui.Button('Cancel')
+            Eq_button_Cancel.horizontal_padding_em = 0
+            Eq_button_Cancel.vertical_padding_em = 0
+            Eq_button_Cancel.set_on_clicked(Eq_dialog_cancel)
+            Eq_button_Correct = gui.Button('Correct')
+            Eq_button_Correct.horizontal_padding_em = 0
+            Eq_button_Correct.vertical_padding_em = 0
+            Eq_button_Correct.set_on_clicked(Eq_dialog_done)
+            Button_bar.add_stretch()
+            Button_bar.add_child(Eq_button_Cancel)
+            Button_bar.add_child(Eq_button_Correct)
+
+            vert = gui.Vert(0, gui.Margins(self.em, self.em, self.em, self.em))
+            vert.add_child(gui.Label('Gengenate pointcloud by Equatuon'))
+            vert.add_child(Eq_bar)
+            vert.add_fixed(0.25 * self.em)
+            vert.add_child(Column)
+            vert.add_fixed(0.25 * self.em)
+            vert.add_child(gui.Label('Z-Axis Setting'))
+            vert.add_child(Axis_bar)
+            vert.add_child(gui.Label('Origin Setting'))
+            vert.add_child(Domain_bar)
+            vert.add_child(Button_bar)
+            dlg.add_child(vert)
+
+
+            if hasattr(self,'Equatuon'):
+                Eq_name.text_value = self.Equatuon.name
+                for S in self.Equatuon.sur:
+                    Column.add_item(S)
+                Update_value(self.Equatuon.sur[0],0)
+            else:
+                Column.add_item('None')
+
+            self.window.show_dialog(dlg)
+        Eq_setting_dialog()
+
 
     def Coeff_Load_dialog(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, 'Choose file to load', self.window.theme)
@@ -696,8 +822,8 @@ class AppWindow:
             self.tabs.selected_index = 1
             self.window.set_needs_layout()
             self.colorbar.visible = True if hasattr(self.active_model,'SagErr') else False
-            if hasattr(self.active_model,'Surface'): 
-                self.Menu.set_enabled(22,True)
+            #if hasattr(self.active_model,'Surface'): 
+            self.Menu.set_enabled(22,True)
             self.picked_idx = []
             self.label_list = []
             self.Update_Result(False)
@@ -1362,10 +1488,10 @@ class AppWindow:
         self.Apply_button.enabled = False
         self.Filter_button.is_on = False
         self.SagErr_cal_button.enabled = True if hasattr(self.active_model,'Surface') else True
-        if hasattr(self.active_model,'Surface'): 
-            self.Menu.set_enabled(22,True)
-        else:
-            self.Menu.set_enabled(22,False)
+        #if hasattr(self.active_model,'Surface'): 
+        #    self.Menu.set_enabled(22,True)
+        #else:
+        #    self.Menu.set_enabled(22,False)
 
     def Save_clicked(self):
         def save_done(filepath):
